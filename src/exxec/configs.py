@@ -28,6 +28,11 @@ if TYPE_CHECKING:
     from exxec.vercel_provider import VercelExecutionEnvironment
 
 
+VercelRuntime = Literal[
+    "node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"
+]
+
+
 class BaseExecutionEnvironmentConfig(Schema):
     """Base execution environment configuration."""
 
@@ -77,6 +82,13 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     isolated: bool = Field(default=False, title="Isolated Execution")
     """Whether to run code in a subprocess."""
 
+    cwd: str | None = Field(
+        default=None,
+        title="Working Directory",
+        examples=["/app", "/home/user"],
+    )
+    """Working directory for the execution environment."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> LocalExecutionEnvironment:
@@ -90,6 +102,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             isolated=self.isolated,
             executable=self.executable,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -139,9 +152,7 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """
 
     model_config = ConfigDict(json_schema_extra={"x-doc-title": "E2B Execution Environment"})
-
     type: Literal["e2b"] = Field("e2b", init=False)
-
     template: str | None = Field(
         default=None,
         title="E2B Template",
@@ -194,18 +205,10 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """CPU cores allocated to the container."""
 
-    memory: int | str = Field(
-        default=128,
-        title="Memory (MiB)",
-        examples=[128, "1Gi"],
-    )
+    memory: int | str = Field(default=128, title="Memory (MiB)", examples=[128, "1Gi"])
     """Memory allocated to the container in MiB."""
 
-    keep_warm_seconds: int = Field(
-        default=600,
-        title="Keep Warm Duration",
-        examples=[300, 600, -1],
-    )
+    keep_warm_seconds: int = Field(default=600, title="Keep Warm Duration", examples=[300, 600, -1])
     """Seconds to keep sandbox alive, -1 for no timeout."""
 
     language: Language = Field(
@@ -239,9 +242,7 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """
 
     model_config = ConfigDict(json_schema_extra={"x-doc-title": "Daytona Execution Environment"})
-
     type: Literal["daytona"] = Field("daytona", init=False)
-
     api_url: str | None = Field(
         default=None,
         title="API URL",
@@ -351,27 +352,16 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Microsandbox server URL (uses MSB_SERVER_URL env var if None)."""
 
-    namespace: str = Field(
-        default="default",
-        title="Namespace",
-    )
+    namespace: str = Field(default="default", title="Namespace")
     """Sandbox namespace."""
 
     api_key: SecretStr | None = Field(default=None, title="API Key")
     """API key for authentication (uses MSB_API_KEY env var if None)."""
 
-    memory: int = Field(
-        default=512,
-        ge=128,
-        title="Memory (MB)",
-    )
+    memory: int = Field(default=512, ge=128, title="Memory (MB)")
     """Memory limit in MB."""
 
-    cpus: float = Field(
-        default=1.0,
-        ge=0.1,
-        title="CPU Cores",
-    )
+    cpus: float = Field(default=1.0, ge=0.1, title="CPU Cores")
     """CPU limit."""
 
     language: Language = Field(
@@ -426,37 +416,19 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Modal app name (creates if missing)."""
 
-    cpu: float | None = Field(
-        default=None,
-        ge=0.1,
-        title="CPU Cores",
-    )
+    cpu: float | None = Field(default=None, ge=0.1, title="CPU Cores")
     """CPU allocation in cores."""
 
-    memory: int | None = Field(
-        default=None,
-        ge=128,
-        title="Memory (MB)",
-    )
+    memory: int | None = Field(default=None, ge=128, title="Memory (MB)")
     """Memory allocation in MB."""
 
-    gpu: str | None = Field(
-        default=None,
-        title="GPU Type",
-        examples=["T4", "A100", "A10G"],
-    )
+    gpu: str | None = Field(default=None, title="GPU Type", examples=["T4", "A100", "A10G"])
     """GPU type."""
 
-    idle_timeout: int | None = Field(
-        default=None,
-        title="Idle Timeout (seconds)",
-    )
+    idle_timeout: int | None = Field(default=None, title="Idle Timeout (seconds)")
     """Idle timeout in seconds."""
 
-    workdir: str = Field(
-        default="/tmp",
-        title="Working Directory",
-    )
+    workdir: str = Field(default="/tmp", title="Working Directory")
     """Working directory in sandbox."""
 
     language: Language = Field(
@@ -496,16 +468,10 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["ssh"] = Field("ssh", init=False)
 
-    host: str = Field(
-        title="Host",
-        examples=["192.168.1.100", "example.com"],
-    )
+    host: str = Field(title="Host", examples=["192.168.1.100", "example.com"])
     """Remote host to connect to."""
 
-    username: str = Field(
-        title="Username",
-        examples=["ubuntu", "root"],
-    )
+    username: str = Field(title="Username", examples=["ubuntu", "root"])
     """SSH username."""
 
     password: SecretStr | None = Field(default=None, title="Password")
@@ -518,12 +484,7 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Path to SSH private key file."""
 
-    port: int = Field(
-        default=22,
-        ge=1,
-        le=65535,
-        title="SSH Port",
-    )
+    port: int = Field(default=22, ge=1, le=65535, title="SSH Port")
     """SSH port."""
 
     language: Language = Field(
@@ -571,25 +532,13 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["vercel"] = Field("vercel", init=False)
 
-    runtime: (
-        Literal["node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"]
-        | None
-    ) = Field(
-        default=None,
-        title="Runtime",
-    )
+    runtime: VercelRuntime | None = Field(default=None, title="Runtime")
     """Vercel runtime to use."""
 
-    resources: dict[str, int | str] | None = Field(
-        default=None,
-        title="Resources",
-    )
+    resources: dict[str, int | str] | None = Field(default=None, title="Resources")
     """Resource configuration for the sandbox."""
 
-    ports: list[int] = Field(
-        default=[3000],
-        title="Ports",
-    )
+    ports: list[int] = Field(default=[3000], title="Ports")
     """List of ports to expose."""
 
     language: Language = Field(
@@ -602,16 +551,10 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     token: SecretStr | None = Field(default=None, title="API Token")
     """Vercel API token (uses environment if None)."""
 
-    project_id: str | None = Field(
-        default=None,
-        title="Project ID",
-    )
+    project_id: str | None = Field(default=None, title="Project ID")
     """Vercel project ID (uses environment if None)."""
 
-    team_id: str | None = Field(
-        default=None,
-        title="Team ID",
-    )
+    team_id: str | None = Field(default=None, title="Team ID")
     """Vercel team ID (uses environment if None)."""
 
     def get_provider(
@@ -645,47 +588,25 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["pyodide"] = Field("pyodide", init=False)
 
-    startup_timeout: float = Field(
-        default=60.0,
-        gt=0.0,
-        title="Startup Timeout",
-    )
+    startup_timeout: float = Field(default=60.0, gt=0.0, title="Startup Timeout")
     """Timeout for Pyodide initialization in seconds."""
 
-    allow_net: bool | list[str] = Field(
-        default=True,
-        title="Network Access",
-    )
+    allow_net: bool | list[str] = Field(default=True, title="Network Access")
     """Network access (True=all, list=specific hosts, False=none)."""
 
-    allow_read: bool | list[str] = Field(
-        default=False,
-        title="File Read Access",
-    )
+    allow_read: bool | list[str] = Field(default=False, title="File Read Access")
     """File read access."""
 
-    allow_write: bool | list[str] = Field(
-        default=False,
-        title="File Write Access",
-    )
+    allow_write: bool | list[str] = Field(default=False, title="File Write Access")
     """File write access."""
 
-    allow_env: bool | list[str] = Field(
-        default=False,
-        title="Environment Variable Access",
-    )
+    allow_env: bool | list[str] = Field(default=False, title="Environment Variable Access")
     """Environment variable access."""
 
-    allow_run: bool | list[str] = Field(
-        default=False,
-        title="Subprocess Execution",
-    )
+    allow_run: bool | list[str] = Field(default=False, title="Subprocess Execution")
     """Subprocess execution (limited in WASM)."""
 
-    allow_ffi: bool | list[str] = Field(
-        default=False,
-        title="FFI Access",
-    )
+    allow_ffi: bool | list[str] = Field(default=False, title="FFI Access")
     """Foreign function interface access."""
 
     deno_executable: str | None = Field(

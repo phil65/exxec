@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 import inspect
 import json
 import shlex
 import sys
 import textwrap
-from typing import TYPE_CHECKING, Any, ParamSpec, get_type_hints
+from typing import TYPE_CHECKING, Any, get_type_hints
+
+import anyenv
 
 from exxec.docker_provider.provider import DockerExecutionEnvironment
 
@@ -17,20 +20,12 @@ if TYPE_CHECKING:
 
     from exxec.base import ExecutionEnvironment
 
-CallableP = ParamSpec("CallableP")  # For the callable's parameters
-EnvP = ParamSpec("EnvP")  # For the environment's parameters
-
-
-# Common module->package mappings for edge cases
 MODULE_TO_PACKAGE = {
     "cv2": "opencv-python",
     "PIL": "Pillow",
     "yaml": "PyYAML",
     "sklearn": "scikit-learn",
     "bs4": "beautifulsoup4",
-    "requests": "requests",
-    "numpy": "numpy",
-    "pandas": "pandas",
 }
 
 CODE = """
@@ -92,14 +87,9 @@ def infer_package_dependencies(import_path: str) -> list[str]:
     """
     if not import_path:
         return []
-
-    # Get the root module name
     root_module = import_path.split(".")[0]
     packages = []
-
     try:
-        import importlib.metadata
-
         # Try to find which package provides this module
         pkg_to_modules = importlib.metadata.packages_distributions()
         for pkg, modules in pkg_to_modules.items():
@@ -145,8 +135,7 @@ def create_remote_callable[R, **CallableP, **EnvP](
         source_code = None
         func_name = import_path.split(".")[-1]
     else:
-        # Capture return type annotation for type-safe deserialization
-        try:
+        try:  # Capture return type annotation for type-safe deserialization
             # Use get_type_hints to resolve string annotations to actual types
             type_hints = get_type_hints(callable_obj)
             return_type = type_hints.get("return")
@@ -163,19 +152,15 @@ def create_remote_callable[R, **CallableP, **EnvP](
             import_path = f"{module}.{callable_obj.__qualname__}"
         else:
             import_path = f"{module}.{callable_obj.__class__.__qualname__}"
-
-        # Handle __main__ module case
-        is_main_module = module == "__main__"
+        is_main_module = module == "__main__"  # Handle __main__ module case
         if is_main_module:
             # Get source and dedent it
             source_code = textwrap.dedent(inspect.getsource(callable_obj))
             func_name = callable_obj.__name__
-
             # Extract imports and class definitions from the main module
             main_module = sys.modules["__main__"]
             imports = []
             class_defs = []
-
             for obj in vars(main_module).values():
                 if (
                     isinstance(obj, type)
@@ -201,12 +186,10 @@ def create_remote_callable[R, **CallableP, **EnvP](
             source_code = None
             func_name = import_path.split(".")[-1]
             imports_and_classes = ""
-
     # Infer package dependencies
     dependencies = infer_package_dependencies(import_path)
     # Filter out invalid packages like __main__
     dependencies = [dep for dep in dependencies if not dep.startswith("__")]
-
     # Auto-detect Pydantic dependency if BaseModel is used in __main__ module
     if (
         is_main_module
@@ -218,8 +201,6 @@ def create_remote_callable[R, **CallableP, **EnvP](
 
     async def remote_wrapper(*func_args: Any, **func_kwargs: Any) -> R:
         """Wrapper that executes the callable remotely."""
-        import anyenv
-
         # Create execution code based on whether it's from __main__ or not
         if is_main_module:
             code = MAIN_MODULE_CODE.format(
