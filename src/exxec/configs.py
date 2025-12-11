@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import ConfigDict, Field, SecretStr
+from schemez import Schema
 
 from exxec.models import Language
 from exxec.srt_provider.config import SandboxConfig
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from exxec.vercel_provider import VercelExecutionEnvironment
 
 
-class BaseExecutionEnvironmentConfig(BaseModel):
+class BaseExecutionEnvironmentConfig(Schema):
     """Base execution environment configuration."""
 
     type: str = Field(init=False)
@@ -47,8 +48,6 @@ class BaseExecutionEnvironmentConfig(BaseModel):
         examples=[120.0, 300.0],
     )
     """Execution timeout in seconds."""
-
-    model_config = ConfigDict(use_attribute_docstrings=True, extra="forbid")
 
 
 class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
