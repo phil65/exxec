@@ -1,0 +1,77 @@
+default_language_version:
+  python: python3.13
+default_stages: [pre-commit]
+repos:
+  # Phase 1: Fast basic checks (fail early)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    # https://pre-commit.com/hooks.html
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-json
+      - id: check-xml
+      - id: check-yaml
+        args: [--allow-multiple-documents, --unsafe]
+      - id: detect-private-key
+      - id: debug-statements
+
+  # Phase 2: Code formatting (auto-fix, system commands)
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ruff-fix
+        name: ruff-fix
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+        require_serial: true
+      - id: tombi-format
+        name: tombi-format
+        entry: uv run tombi format pyproject.toml
+        language: system
+        files: ^pyproject\.toml$
+        require_serial: true
+
+  # Phase 3: Linting and type checking (system commands)
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check
+        language: system
+        types: [python]
+        require_serial: true
+      - id: mypy
+        name: mypy
+        entry: uv run mypy --fixed-format-cache
+        language: system
+        types: [python]
+        require_serial: true
+
+  # Phase 4: Tests (most expensive, system command)
+  - repo: local
+    hooks:
+      - id: pytest-check
+        name: pytest-check
+        entry: uv run pytest
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        require_serial: true
+
+  # Phase 5: Commit message validation (final)
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.9.1
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+        additional_dependencies: [typing-extensions]
