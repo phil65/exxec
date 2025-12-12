@@ -29,8 +29,9 @@ from exxec.modal_provider import ModalExecutionEnvironment
 from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment, VercelRuntime
 from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
-# from exxec.server import fastapi_tool_server
 
+# from exxec.server import fastapi_tool_server
+from exxec.configs import ExecutionEnvironmentConfig
 from exxec.ssh_provider import SshExecutionEnvironment
 
 if TYPE_CHECKING:
@@ -296,6 +297,7 @@ __all__ = [
     "DockerExecutionEnvironment",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",
+    "ExecutionEnvironmentConfig",
     "ExecutionResult",
     "LocalExecutionEnvironment",
     "MicrosandboxExecutionEnvironment",
