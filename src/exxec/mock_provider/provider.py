@@ -11,11 +11,7 @@ from fsspec.implementations.asyn_wrapper import (  # type: ignore[import-untyped
 from fsspec.implementations.memory import MemoryFileSystem  # type: ignore[import-untyped]
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessStartedEvent
 from exxec.mock_provider.process_manager import MockProcessManager
 from exxec.models import ExecutionResult
 

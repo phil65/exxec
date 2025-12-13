@@ -9,12 +9,7 @@ import time
 from typing import TYPE_CHECKING, Literal, Self
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_code
 

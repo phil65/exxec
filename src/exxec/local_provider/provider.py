@@ -13,12 +13,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 from anyenv.processes import create_process, create_shell_process
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.local_provider.utils import StreamCapture, find_executable
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_code

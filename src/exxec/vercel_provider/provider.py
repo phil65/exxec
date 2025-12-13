@@ -7,19 +7,9 @@ import time
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
-from exxec.parse_output import (
-    get_script_path,
-    parse_command,
-    parse_output,
-    wrap_code,
-)
+from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
 
 
 # Vercel runtime options based on the API error message

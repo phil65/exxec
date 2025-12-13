@@ -13,12 +13,7 @@ from typing import TYPE_CHECKING, Any, Self
 from anyenv.processes import create_process
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.pyodide_provider.filesystem import PyodideFS
 
