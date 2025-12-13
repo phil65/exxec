@@ -156,7 +156,7 @@ def create_remote_callable[R, **CallableP, **EnvP](
         if is_main_module:
             # Get source and dedent it
             source_code = textwrap.dedent(inspect.getsource(callable_obj))
-            func_name = callable_obj.__name__
+            func_name = getattr(callable_obj, "__name__", "unknown")
             # Extract imports and class definitions from the main module
             main_module = sys.modules["__main__"]
             imports = []

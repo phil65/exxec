@@ -83,7 +83,7 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
             await self.sandbox.process.create_session(session_id)
             from daytona.common.process import SessionExecuteRequest  # type: ignore[import-untyped]
 
-            request = SessionExecuteRequest(command=full_command, runAsync=True)
+            request = SessionExecuteRequest(command=full_command, runAsync=True)  # ty: ignore[unknown-argument]
             response = await self.sandbox.process.execute_session_command(session_id, request)
 
             terminal.set_command_id(str(response.cmd_id))
@@ -299,7 +299,7 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         try:
             from daytona.common.process import SessionExecuteRequest
 
-            request = SessionExecuteRequest(command=command, runAsync=run_async)
+            request = SessionExecuteRequest(command=command, runAsync=run_async)  # ty: ignore[unknown-argument]
             response = await self.sandbox.process.execute_session_command(
                 terminal.session_id, request
             )

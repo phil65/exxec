@@ -134,6 +134,7 @@ class PyodideFS(AsyncFileSystem):  # type: ignore[misc]
         self,
         path: str,
         value: bytes,
+        mode: str = "overwrite",
         **kwargs: Any,
     ) -> None:
         """Write file contents."""
@@ -152,7 +153,9 @@ class PyodideFS(AsyncFileSystem):  # type: ignore[misc]
         """Remove directory."""
         await self._fs_request("fs_rmdir", {"path": path, "recursive": False})
 
-    async def _rm(self, path: str, recursive: bool = False, **kwargs: Any) -> None:
+    async def _rm(
+        self, path: str, recursive: bool = False, batch_size: int | None = None, **kwargs: Any
+    ) -> None:
         """Remove file or directory."""
         if recursive:
             await self._fs_request("fs_rmdir", {"path": path, "recursive": True})

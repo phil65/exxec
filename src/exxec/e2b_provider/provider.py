@@ -121,7 +121,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         """Cleanup sandbox."""
         if self.sandbox and not self.keep_alive:
             with contextlib.suppress(Exception):
-                await self.sandbox.kill()
+                await self.sandbox.kill()  # ty: ignore[no-matching-overload]
         await super().__aexit__(exc_type, exc_val, exc_tb)
 
     def get_fs(self) -> E2BFS:
