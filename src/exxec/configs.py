@@ -82,12 +82,12 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     isolated: bool = Field(default=False, title="Isolated Execution")
     """Whether to run code in a subprocess."""
 
-    cwd: str | None = Field(
+    root_path: str | None = Field(
         default=None,
-        title="Working Directory",
+        title="Root path",
         examples=["/app", "/home/user"],
     )
-    """Working directory for the execution environment."""
+    """Path to become the root of the filesystem."""
 
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
@@ -102,7 +102,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             isolated=self.isolated,
             executable=self.executable,
             language=self.language,
-            cwd=self.cwd,
+            root_path=self.root_path,
         )
 
 

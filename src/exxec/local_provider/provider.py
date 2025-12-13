@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from morefs.asyn_local import AsyncLocalFileSystem
+    from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
@@ -56,6 +56,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         isolated: bool = False,
         executable: str | None = None,
         language: Language = "python",
+        root_path: str | None = None,
     ) -> None:
         """Initialize local environment.
 
@@ -66,6 +67,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             isolated: If True, run code in subprocess; if False, run in same process
             executable: Executable to use for isolated mode (if None, auto-detect)
             language: Programming language to use (for isolated mode)
+            root_path: Path to become to root of the filesystem
         """
         super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
         self.timeout = timeout
@@ -73,6 +75,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.language: Language = language
         self.executable = executable or (find_executable(language) if isolated else None)
         self.process: asyncio.subprocess.Process | None = None
+        self.root_path = root_path
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class
@@ -107,11 +110,15 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         # Cleanup server via base class
         await super().__aexit__(exc_type, exc_val, exc_tb)
 
-    def get_fs(self) -> AsyncLocalFileSystem:
+    def get_fs(self) -> AsyncFileSystem:
         """Return an AsyncLocalFileSystem for the current working directory."""
+        from fsspec.implementations.dirfs import DirFileSystem  # type: ignore[import-untyped]
         from morefs.asyn_local import AsyncLocalFileSystem
 
-        return AsyncLocalFileSystem()
+        fs = AsyncLocalFileSystem()
+        if self.root_path:
+            return DirFileSystem(self.root_path, fs)
+        return fs
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in same process or isolated subprocess."""
