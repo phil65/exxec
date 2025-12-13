@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import time
 from typing import TYPE_CHECKING, Literal, Self
+import uuid
 
 from exxec.base import ExecutionEnvironment
 from exxec.beam_provider.helpers import get_image
@@ -210,11 +211,12 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
     async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Beam sandbox."""
         self.instance = self.validate_instance()
-        process_id = f"beam_cmd_{id(self.instance)}"
-        yield ProcessStartedEvent(process_id=process_id, command=command)
         cmd, args = parse_command(command)
+        process_id: str | None = None
         try:
             process = self.instance.process.exec(cmd, *args)
+            process_id = str(process.pid)
+            yield ProcessStartedEvent(process_id=process_id, command=command)
             for line in process.logs:
                 yield OutputEvent(
                     process_id=process_id, data=line.rstrip("\n\r"), stream="combined"
@@ -232,7 +234,8 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
                 )
 
         except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            error_id = process_id or str(uuid.uuid4())[:8]
+            yield ProcessErrorEvent.failed(e, process_id=error_id)
 
 
 if __name__ == "__main__":

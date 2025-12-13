@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import time
 from typing import TYPE_CHECKING, Any, Literal, Self
+import uuid
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
@@ -231,13 +232,14 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
-        process_id = f"vercel_{id(sandbox)}"
-        yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
+        process_id: str | None = None
         try:
             script_path, wrapped_code = self._prepare_code_execution(code)
             await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
             cmd, args = self._get_execution_command(script_path)
             result = await sandbox.run_command_detached(cmd, args)
+            process_id = result.cmd_id
+            yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
             async for log_line in sandbox.client.get_logs(
                 sandbox_id=sandbox.sandbox_id, cmd_id=result.cmd_id
             ):
@@ -258,7 +260,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
                 )
 
         except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            error_id = process_id or str(uuid.uuid4())[:8]
+            yield ProcessErrorEvent.failed(e, process_id=error_id)
 
     async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Vercel sandbox."""
