@@ -198,33 +198,36 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """
         cmd, args = parse_command(command)
         start_time = time.perf_counter()
-        process_id = str(uuid.uuid4())[:8]
+        terminal_id: str | None = None
         try:
             create_response = await self._create_terminal(cmd=cmd, args=args)
             terminal_id = create_response.terminal_id
-            yield ProcessStartedEvent(process_id=process_id, command=command)
+            # Use terminal_id as process_id for ACP terminal embedding
+            yield ProcessStartedEvent(process_id=terminal_id, command=command)
             exit_result = await self._requests.wait_for_terminal_exit(terminal_id)
             response = await self._requests.terminal_output(terminal_id)
             await self._requests.release_terminal(terminal_id)
             if response.output:
-                yield OutputEvent(process_id=process_id, data=response.output, stream="combined")
+                yield OutputEvent(process_id=terminal_id, data=response.output, stream="combined")
             exit_code = exit_result.exit_code or 0
             if exit_code == 0:
                 yield ProcessCompletedEvent(
-                    process_id=process_id,
+                    process_id=terminal_id,
                     exit_code=exit_code,
                     duration=time.perf_counter() - start_time,
                 )
             else:
                 yield ProcessErrorEvent(
-                    process_id=process_id,
+                    process_id=terminal_id,
                     error=f"Command exited with code {exit_code}",
                     error_type="ProcessError",
                     exit_code=exit_code,
                 )
 
         except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id, exit_code=1)
+            # Use terminal_id if available, otherwise generate a fallback ID
+            error_id = terminal_id or str(uuid.uuid4())[:8]
+            yield ProcessErrorEvent.failed(e, process_id=error_id, exit_code=1)
 
     # -------------------------------------------------------------------------
     # Polling-based streaming implementation (experimental)
