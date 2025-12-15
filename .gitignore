@@ -10,6 +10,7 @@ coverage.xml
 .hatch
 .pytest_cache/
 junit.xml
+.beamignore
 # Jupyter Notebook
 .ipynb_checkpoints
 # pyenv
