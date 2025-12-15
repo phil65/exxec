@@ -35,6 +35,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         default_result: ExecutionResult | None = None,
         process_outputs: dict[str, ProcessOutput] | None = None,
         default_process_output: ProcessOutput | None = None,
+        cwd: str | None = None,
     ) -> None:
         """Initialize mock execution environment.
 
@@ -44,8 +45,9 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             default_result: Default result when no match found
             process_outputs: Map of command -> output for process manager
             default_process_output: Default output for process manager
+            cwd: Working directory for the sandbox
         """
-        super().__init__()
+        super().__init__(cwd=cwd)
         self._code_results = code_results or {}
         self._command_results = command_results or {}
         self._default_result = default_result or ExecutionResult(

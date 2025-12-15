@@ -52,6 +52,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         executable: str | None = None,
         language: Language = "python",
         root_path: str | None = None,
+        cwd: str | None = None,
     ) -> None:
         """Initialize local environment.
 
@@ -63,8 +64,9 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             executable: Executable to use for isolated mode (if None, auto-detect)
             language: Programming language to use (for isolated mode)
             root_path: Path to become to root of the filesystem
+            cwd: Working directory for the environment
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.timeout = timeout
         self.isolated = isolated
         self.language: Language = language

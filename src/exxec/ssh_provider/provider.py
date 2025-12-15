@@ -56,7 +56,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             cwd: Remote working directory (auto-generated if None)
             **ssh_kwargs: Additional arguments passed to asyncssh.connect()
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.host = host
         self.username = username
         self.password = password
@@ -64,7 +64,6 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         self.port = port
         self.timeout = timeout
         self.language = language
-        self.cwd = cwd
         self.ssh_kwargs = ssh_kwargs
 
         self._connection_cm: _ACMWrapper[SSHClientConnection] | None = None

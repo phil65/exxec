@@ -39,6 +39,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 180.0,
         language: Language = "python",
         image: str | None = None,
+        cwd: str | None = None,
     ) -> None:
         """Initialize Microsandbox environment.
 
@@ -53,8 +54,9 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             timeout: Sandbox start timeout in seconds
             language: Programming language to use
             image: Custom Docker image (uses default for language if None)
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.server_url = server_url
         self.namespace = namespace
         self.api_key = api_key

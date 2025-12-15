@@ -39,6 +39,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 300.0,
         keep_alive: bool = False,
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize Daytona environment.
 
@@ -52,10 +53,11 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             timeout: Execution timeout in seconds
             keep_alive: Keep sandbox running after execution
             language: Programming language to use for execution
+            cwd: Working directory for the sandbox
         """
         from daytona import AsyncDaytona, DaytonaConfig  # type: ignore[import-untyped]
 
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.image = image
         self.timeout = timeout
         self.keep_alive = keep_alive

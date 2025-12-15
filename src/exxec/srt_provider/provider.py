@@ -41,6 +41,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         timeout: float = 30.0,
         executable: str | None = None,
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize sandboxed execution environment.
 
@@ -51,6 +52,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             timeout: Execution timeout in seconds
             executable: Executable to use (auto-detect if None)
             language: Programming language
+            cwd: Working directory for the sandbox
         """
         # Force isolated mode - sandbox only works with subprocess
         super().__init__(
@@ -60,6 +62,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             isolated=True,
             executable=executable,
             language=language,
+            cwd=cwd,
         )
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()

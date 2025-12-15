@@ -61,6 +61,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 300.0,
         keep_alive: bool = False,
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize E2B environment.
 
@@ -71,8 +72,9 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             timeout: Sandbox timeout in seconds
             keep_alive: Keep sandbox running after execution
             language: Programming language to use
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.template = template
         self.timeout = timeout
         self.keep_alive = keep_alive

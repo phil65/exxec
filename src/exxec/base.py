@@ -26,6 +26,7 @@ class ExecutionEnvironment(ABC):
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize execution environment with optional lifespan handler.
@@ -33,11 +34,13 @@ class ExecutionEnvironment(ABC):
         Args:
             lifespan_handler: Optional async context manager for tool server
             dependencies: Optional list of dependencies to install
+            cwd: Working directory for the environment (None means use default/auto)
             **kwargs: Additional keyword arguments for specific providers
         """
         self.lifespan_handler = lifespan_handler
         self.server_info: ServerInfo | None = None
         self.dependencies = dependencies or []
+        self.cwd = cwd
         self._process_manager: ProcessManagerProtocol | None = None
 
     async def __aenter__(self) -> Self:

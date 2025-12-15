@@ -54,6 +54,13 @@ class BaseExecutionEnvironmentConfig(Schema):
     )
     """Execution timeout in seconds."""
 
+    cwd: str | None = Field(
+        default=None,
+        title="Working Directory",
+        examples=["/home/user/project", "/tmp/workspace"],
+    )
+    """Working directory for the environment (None means use default/auto)."""
+
 
 class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """Local execution environment configuration.
@@ -103,6 +110,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             executable=self.executable,
             language=self.language,
             root_path=self.root_path,
+            cwd=self.cwd,
         )
 
 
@@ -142,6 +150,7 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             image=self.image,
             timeout=self.timeout,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -183,6 +192,7 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             keep_alive=self.keep_alive,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -232,6 +242,7 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             keep_warm_seconds=self.keep_warm_seconds,
             timeout=self.timeout,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -286,6 +297,7 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             image=self.image,
             timeout=self.timeout,
             keep_alive=self.keep_alive,
+            cwd=self.cwd,
         )
 
 
@@ -330,6 +342,7 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             executable=self.executable,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -396,6 +409,7 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             language=self.language,
             image=self.image,
+            cwd=self.cwd,
         )
 
 
@@ -455,6 +469,7 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             idle_timeout=self.idle_timeout,
             workdir=self.workdir,
             language=self.language,
+            cwd=self.cwd,
         )
 
 
@@ -493,13 +508,6 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         examples=["python", "javascript", "typescript"],
     )
     """Programming language to use."""
-
-    cwd: str | None = Field(
-        default=None,
-        title="Working Directory",
-        examples=["/tmp", "~/workspace"],
-    )
-    """Remote working directory (auto-generated if None)."""
 
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
@@ -575,6 +583,7 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             token=token_str,
             project_id=self.project_id,
             team_id=self.team_id,
+            cwd=self.cwd,
         )
 
 
@@ -634,6 +643,7 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             allow_run=self.allow_run,
             allow_ffi=self.allow_ffi,
             deno_executable=self.deno_executable,
+            cwd=self.cwd,
         )
 
 

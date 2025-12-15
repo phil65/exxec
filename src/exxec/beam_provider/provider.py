@@ -44,6 +44,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         keep_warm_seconds: int = 600,
         timeout: float = 300.0,
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize Beam environment.
 
@@ -55,8 +56,9 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
             keep_warm_seconds: Seconds to keep sandbox alive (-1 for no timeout)
             timeout: Execution timeout in seconds
             language: Programming language to use
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.cpu = cpu
         self.memory = memory
         self.keep_warm_seconds = keep_warm_seconds

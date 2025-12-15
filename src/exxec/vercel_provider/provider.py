@@ -68,6 +68,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         token: str | None = None,
         project_id: str | None = None,
         team_id: str | None = None,
+        cwd: str | None = None,
     ):
         """Initialize Vercel sandbox environment.
 
@@ -83,8 +84,9 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             token: Vercel API token (uses environment if None)
             project_id: Vercel project ID (uses environment if None)
             team_id: Vercel team ID (uses environment if None)
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.runtime = runtime
         # Convert timeout from seconds to milliseconds for Vercel API
         self.timeout_ms = timeout * 1000

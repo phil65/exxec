@@ -39,6 +39,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         requests: ACPRequests,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
+        cwd: str | None = None,
     ) -> None:
         """Initialize ACP execution environment.
 
@@ -47,8 +48,9 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             requests: ACP requests helper for terminal operations
             lifespan_handler: Optional async context manager for tool server
             dependencies: Optional list of dependencies (handled by client)
+            cwd: Working directory for the environment
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self._fs = fs
         self._requests = requests
 

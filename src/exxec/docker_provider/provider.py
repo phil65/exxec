@@ -36,6 +36,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         image: str = "python:3.13-slim",
         timeout: float = 60.0,
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize Docker environment.
 
@@ -45,8 +46,9 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             image: Docker image to use
             timeout: Execution timeout in seconds
             language: Programming language to use
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.image = image
         self.timeout = timeout
         self.language: Language = language

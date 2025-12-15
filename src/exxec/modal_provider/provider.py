@@ -62,6 +62,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         idle_timeout: int | None = None,
         workdir: str = "/tmp",
         language: Language = "python",
+        cwd: str | None = None,
     ) -> None:
         """Initialize Modal sandbox environment.
 
@@ -79,8 +80,9 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             idle_timeout: Idle timeout in seconds
             workdir: Working directory in sandbox
             language: Programming language to use
+            cwd: Working directory for the sandbox
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
         self.app_name = app_name or "anyenv-execution"
         self.image = image
         self.volumes = volumes or {}
