@@ -2,7 +2,7 @@
 
 [project]
 name = "exxec"
-version = "0.1.3"
+version = "0.1.4"
 description = "Execution environments"
 readme = "README.md"
 requires-python = ">=3.13"
