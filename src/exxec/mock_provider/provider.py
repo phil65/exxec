@@ -11,7 +11,7 @@ from fsspec.implementations.asyn_wrapper import (  # type: ignore[import-untyped
 from fsspec.implementations.memory import MemoryFileSystem  # type: ignore[import-untyped]
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessStartedEvent
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.mock_provider.process_manager import MockProcessManager
 from exxec.models import ExecutionResult
 
@@ -35,6 +35,8 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         default_result: ExecutionResult | None = None,
         process_outputs: dict[str, ProcessOutput] | None = None,
         default_process_output: ProcessOutput | None = None,
+        code_exceptions: dict[str, Exception] | None = None,
+        command_exceptions: dict[str, Exception] | None = None,
         cwd: str | None = None,
     ) -> None:
         """Initialize mock execution environment.
@@ -45,11 +47,15 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             default_result: Default result when no match found
             process_outputs: Map of command -> output for process manager
             default_process_output: Default output for process manager
+            code_exceptions: Map of code string -> exception to raise during stream_code
+            command_exceptions: Map of command -> exception to raise during stream_command
             cwd: Working directory for the sandbox
         """
         super().__init__(cwd=cwd)
         self._code_results = code_results or {}
         self._command_results = command_results or {}
+        self._code_exceptions = code_exceptions or {}
+        self._command_exceptions = command_exceptions or {}
         self._default_result = default_result or ExecutionResult(
             result=None,
             duration=0.001,
@@ -84,34 +90,62 @@ class MockExecutionEnvironment(ExecutionEnvironment):
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Stream mock code execution events."""
+        # Check for exception simulation first
+        if code in self._code_exceptions:
+            raise self._code_exceptions[code]
+
         result = self._code_results.get(code, self._default_result)
         process_id = f"stream_{uuid.uuid4().hex[:8]}"
 
         yield ProcessStartedEvent(process_id=process_id, command="python", pid=12345)
+
         if result.stdout:
             yield OutputEvent(process_id=process_id, data=result.stdout, stream="stdout")
         if result.stderr:
             yield OutputEvent(process_id=process_id, data=result.stderr, stream="stderr")
 
-        yield ProcessCompletedEvent(
-            process_id=process_id,
-            exit_code=result.exit_code or (0 if result.success else 1),
-            duration=result.duration,
-        )
+        # If there's an error, yield ProcessErrorEvent instead of ProcessCompletedEvent
+        if not result.success and result.error:
+            yield ProcessErrorEvent(
+                process_id=process_id,
+                error=result.error,
+                error_type=result.error_type or "error",
+                exit_code=result.exit_code or 1,
+            )
+        else:
+            yield ProcessCompletedEvent(
+                process_id=process_id,
+                exit_code=result.exit_code or 0,
+                duration=result.duration,
+            )
 
     async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
         """Stream mock command execution events."""
+        # Check for exception simulation first
+        if command in self._command_exceptions:
+            raise self._command_exceptions[command]
+
         result = self._command_results.get(command, self._default_result)
         process_id = f"cmd_{uuid.uuid4().hex[:8]}"
 
         yield ProcessStartedEvent(process_id=process_id, command=command, pid=12345)
+
         if result.stdout:
             yield OutputEvent(process_id=process_id, data=result.stdout, stream="stdout")
         if result.stderr:
             yield OutputEvent(process_id=process_id, data=result.stderr, stream="stderr")
 
-        yield ProcessCompletedEvent(
-            process_id=process_id,
-            exit_code=result.exit_code or (0 if result.success else 1),
-            duration=result.duration,
-        )
+        # If there's an error, yield ProcessErrorEvent instead of ProcessCompletedEvent
+        if not result.success and result.error:
+            yield ProcessErrorEvent(
+                process_id=process_id,
+                error=result.error,
+                error_type=result.error_type,
+                exit_code=result.exit_code or 1,
+            )
+        else:
+            yield ProcessCompletedEvent(
+                process_id=process_id,
+                exit_code=result.exit_code or 0,
+                duration=result.duration,
+            )
