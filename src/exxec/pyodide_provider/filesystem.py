@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import base64
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal, TypedDict, overload
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, overload
 
 from fsspec.asyn import AsyncFileSystem, sync_wrapper  # type: ignore[import-untyped]
+
+
+if TYPE_CHECKING:
+    from upathtools.filesystems.base.basefilesystem import CreationMode
 
 
 PyodideMethod = Literal[
@@ -134,7 +138,7 @@ class PyodideFS(AsyncFileSystem):  # type: ignore[misc]
         self,
         path: str,
         value: bytes,
-        mode: str = "overwrite",
+        mode: CreationMode = "overwrite",
         **kwargs: Any,
     ) -> None:
         """Write file contents."""
