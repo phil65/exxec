@@ -217,6 +217,13 @@ def get_environment(
 ) -> PyodideExecutionEnvironment: ...
 
 
+@overload
+def get_environment(
+    provider: ExecutionEnvironmentStr,
+    **kwargs: Any,
+) -> ExecutionEnvironment: ...
+
+
 def get_environment(  # noqa: PLR0911
     provider: ExecutionEnvironmentStr,
     **kwargs: Any,
