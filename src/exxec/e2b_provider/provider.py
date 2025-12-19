@@ -80,6 +80,8 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         self.keep_alive = keep_alive
         self.language: Language = language
         self.sandbox: AsyncSandbox | None = None
+        # E2B sandboxes run Linux
+        self._os_type = "Linux"
 
     def _ensure_initialized(self) -> AsyncSandbox:
         """Ensure async context."""

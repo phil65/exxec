@@ -102,6 +102,8 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         self._process: asyncio.subprocess.Process | None = None
         self._request_id = 0
         self._lock = asyncio.Lock()
+        # Pyodide emulates a Linux-like environment
+        self._os_type = "Linux"
 
     def _build_command(self) -> list[str]:
         """Build the Deno command with permissions."""

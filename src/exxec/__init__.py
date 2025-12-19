@@ -14,7 +14,7 @@ __url__ = "https://github.com/phil65/exxec"
 
 from typing import Any, Literal, overload, TYPE_CHECKING, assert_never
 
-from exxec.base import ExecutionEnvironment
+from exxec.base import ExecutionEnvironment, OSType
 
 from exxec.beam_provider import BeamExecutionEnvironment
 from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager
@@ -304,6 +304,7 @@ __all__ = [
     "MockExecutionEnvironment",
     "MockProcessManager",
     "ModalExecutionEnvironment",
+    "OSType",
     "PyodideExecutionEnvironment",
     "SRTExecutionEnvironment",
     "SandboxConfig",

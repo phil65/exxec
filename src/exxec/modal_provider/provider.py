@@ -96,6 +96,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         self.language: Language = language
         self.app: App | None = None
         self.sandbox: Sandbox | None = None
+        # Modal sandboxes run Linux
+        self._os_type = "Linux"
 
     def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.

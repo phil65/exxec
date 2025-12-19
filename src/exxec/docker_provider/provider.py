@@ -54,6 +54,8 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         self.language: Language = language
         self.container: DockerContainer | None = None
         self.host_workdir: str | None = None
+        # Docker containers are always Linux
+        self._os_type = "Linux"
 
     async def __aenter__(self) -> Self:
         from testcontainers.core.container import DockerContainer

@@ -65,6 +65,8 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         self.timeout = timeout
         self.language: Language = language
         self.instance: SandboxInstance | None = None
+        # Beam sandboxes run Linux
+        self._os_type = "Linux"
 
     def get_fs(self) -> BeamFS:
         """Return a BeamFS instance for the sandbox."""

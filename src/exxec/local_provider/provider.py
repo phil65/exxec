@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import platform
 import shutil
 import sys
 import time
@@ -73,6 +74,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.executable = executable or (find_executable(language) if isolated else None)
         self.process: asyncio.subprocess.Process | None = None
         self.root_path = root_path
+        # Local provider knows OS statically
+        self._os_type = platform.system()  # type: ignore[assignment]
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class

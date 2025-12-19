@@ -65,6 +65,8 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         config = DaytonaConfig(api_url=api_url, api_key=api_key, target=target)
         self.daytona = AsyncDaytona(config)
         self._sandbox: AsyncSandbox | None = None
+        # Daytona sandboxes run Linux containers
+        self._os_type = "Linux"
 
     @property
     def sandbox(self) -> AsyncSandbox:

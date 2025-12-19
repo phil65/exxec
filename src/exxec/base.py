@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 
 if TYPE_CHECKING:
@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import ExecutionResult, ServerInfo
+
+
+OSType = Literal["Windows", "Darwin", "Linux"]
 
 
 class ExecutionEnvironment(ABC):
@@ -42,12 +45,16 @@ class ExecutionEnvironment(ABC):
         self.dependencies = dependencies or []
         self.cwd = cwd
         self._process_manager: ProcessManagerProtocol | None = None
+        self._os_type: OSType | None = None
 
     async def __aenter__(self) -> Self:
         """Setup environment (start server, spawn process, etc.)."""
         # Start tool server if provided
         if self.lifespan_handler:
             self.server_info = await self.lifespan_handler.__aenter__()
+        # Detect OS type if not already set by subclass
+        if self._os_type is None:
+            self._os_type = await self._detect_os_type()
         return self
 
     async def __aexit__(
@@ -69,6 +76,46 @@ class ExecutionEnvironment(ABC):
 
             self._process_manager = EnvironmentTerminalManager(self)
         return self._process_manager
+
+    @property
+    def os_type(self) -> OSType:
+        """Get the OS type of the execution environment.
+
+        Returns:
+            "Windows", "Darwin", or "Linux"
+
+        Raises:
+            RuntimeError: If accessed before entering the async context manager.
+        """
+        if self._os_type is None:
+            msg = "OS type not detected. Use 'async with' context manager first."
+            raise RuntimeError(msg)
+        return self._os_type
+
+    async def _detect_os_type(self) -> OSType:
+        """Detect OS type by running commands in the environment.
+
+        Providers can override this if they know the OS statically.
+
+        Returns:
+            "Windows", "Darwin", or "Linux"
+        """
+        # Try uname first (works on Linux/macOS)
+        result = await self.execute_command("uname -s")
+        if result.exit_code == 0 and result.stdout:
+            uname = result.stdout.strip()
+            if uname == "Darwin":
+                return "Darwin"
+            if uname == "Linux":
+                return "Linux"
+
+        # Check for Windows
+        result = await self.execute_command("ver")
+        if result.exit_code == 0 and result.stdout and "Windows" in result.stdout:
+            return "Windows"
+
+        # Default to Linux for Unix-like systems
+        return "Linux"
 
     @abstractmethod
     async def execute(self, code: str) -> ExecutionResult:

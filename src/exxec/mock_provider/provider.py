@@ -70,6 +70,8 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             default_output=default_process_output,
             command_outputs=process_outputs,
         )
+        # Mock environment defaults to Linux
+        self._os_type = "Linux"
 
     @property
     def process_manager(self) -> MockProcessManager:

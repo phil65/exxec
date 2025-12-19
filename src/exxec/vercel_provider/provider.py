@@ -98,6 +98,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         self.resources = resources
         self.ports = ports or [3000]
         self.language: Language = language
+        # Vercel sandboxes run Linux
+        self._os_type = "Linux"
         self.token = token
         self.project_id = project_id
         self.team_id = team_id

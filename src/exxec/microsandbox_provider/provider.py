@@ -66,6 +66,8 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         self.language = language
         self.image = image
         self.sandbox: PythonSandbox | NodeSandbox | None = None
+        # Microsandbox runs Linux containers
+        self._os_type = "Linux"
 
     def _ensure_initialized(self) -> PythonSandbox | NodeSandbox:
         """Validate that the environment is properly initialized.
