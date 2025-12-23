@@ -38,6 +38,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         code_exceptions: dict[str, Exception] | None = None,
         command_exceptions: dict[str, Exception] | None = None,
         cwd: str | None = None,
+        deterministic_ids: bool = False,
     ) -> None:
         """Initialize mock execution environment.
 
@@ -50,6 +51,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             code_exceptions: Map of code string -> exception to raise during stream_code
             command_exceptions: Map of command -> exception to raise during stream_command
             cwd: Working directory for the sandbox
+            deterministic_ids: If True, use sequential IDs instead of UUIDs for processes
         """
         super().__init__(cwd=cwd)
         self._code_results = code_results or {}
@@ -72,11 +74,27 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         )
         # Mock environment defaults to Linux
         self._os_type = "Linux"
+        self._deterministic_ids = deterministic_ids
+        self._process_counter = 0
 
     @property
     def process_manager(self) -> MockProcessManager:
         """Get the mock process manager."""
         return self._mock_process_manager
+
+    def _generate_process_id(self, prefix: str) -> str:
+        """Generate a process ID, either deterministic or random.
+
+        Args:
+            prefix: Prefix for the process ID (e.g., 'stream', 'cmd')
+
+        Returns:
+            Process ID string
+        """
+        if self._deterministic_ids:
+            self._process_counter += 1
+            return f"{prefix}_{self._process_counter:04d}"
+        return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
     def get_fs(self) -> AsyncFileSystem:
         """Return the async-wrapped memory filesystem."""
@@ -97,7 +115,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             raise self._code_exceptions[code]
 
         result = self._code_results.get(code, self._default_result)
-        process_id = f"stream_{uuid.uuid4().hex[:8]}"
+        process_id = self._generate_process_id("code")
 
         yield ProcessStartedEvent(process_id=process_id, command="python", pid=12345)
 
@@ -128,7 +146,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             raise self._command_exceptions[command]
 
         result = self._command_results.get(command, self._default_result)
-        process_id = f"cmd_{uuid.uuid4().hex[:8]}"
+        process_id = self._generate_process_id("cmd")
 
         yield ProcessStartedEvent(process_id=process_id, command=command, pid=12345)
 

@@ -620,6 +620,12 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Default ExecutionResult kwargs when no specific match is found."""
 
+    deterministic_ids: bool = Field(
+        default=False,
+        title="Deterministic IDs",
+    )
+    """Use sequential IDs instead of UUIDs for processes (useful for snapshot testing)."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> MockExecutionEnvironment:
@@ -643,6 +649,7 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             code_results=code_results,
             command_results=command_results,
             default_result=default_result,
+            deterministic_ids=self.deterministic_ids,
             cwd=self.cwd,
         )
 
