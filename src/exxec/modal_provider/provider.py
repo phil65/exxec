@@ -135,7 +135,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
                     self.image = modal.Image.debian_slim().apt_install("nodejs", "npm")
                 case "typescript":
                     self.image = (
-                        modal.Image.debian_slim()
+                        modal.Image
+                        .debian_slim()
                         .apt_install("nodejs", "npm")
                         .run_commands("npm install -g typescript ts-node")
                     )

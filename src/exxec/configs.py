@@ -626,6 +626,13 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Use sequential IDs instead of UUIDs for processes (useful for snapshot testing)."""
 
+    files: dict[str, str] | None = Field(
+        default=None,
+        title="Files",
+        examples=[{"/test/hello.txt": "Hello, World!", "/data/config.json": '{"key": "value"}'}],
+    )
+    """Map of file paths to contents to pre-populate in the in-memory filesystem."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> MockExecutionEnvironment:
@@ -645,13 +652,22 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         if self.default_result:
             default_result = ExecutionResult(**self.default_result)
 
-        return MockExecutionEnvironment(
+        env = MockExecutionEnvironment(
             code_results=code_results,
             command_results=command_results,
             default_result=default_result,
             deterministic_ids=self.deterministic_ids,
             cwd=self.cwd,
         )
+
+        # Pre-populate files in the in-memory filesystem
+        if self.files:
+            for path, content in self.files.items():
+                env._sync_fs.pipe_file(
+                    path, content.encode() if isinstance(content, str) else content
+                )
+
+        return env
 
 
 class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
