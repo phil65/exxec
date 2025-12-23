@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, SecretStr
 from schemez import Schema
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from exxec.e2b_provider import E2bExecutionEnvironment
     from exxec.local_provider import LocalExecutionEnvironment
     from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
+    from exxec.mock_provider import MockExecutionEnvironment
     from exxec.modal_provider import ModalExecutionEnvironment
     from exxec.models import ServerInfo
     from exxec.pyodide_provider import PyodideExecutionEnvironment
@@ -587,6 +588,65 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         )
 
 
+class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Mock execution environment configuration.
+
+    For testing purposes. Uses an in-memory filesystem and configurable results.
+    Dicts are passed as **kwargs to ExecutionResult/ProcessOutput constructors.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Mock Execution Environment"})
+
+    type: Literal["mock"] = Field("mock", init=False)
+
+    code_results: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        title="Code Results",
+        examples=[{"print('hello')": {"stdout": "hello", "success": True}}],
+    )
+    """Map of code string to ExecutionResult kwargs dict."""
+
+    command_results: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        title="Command Results",
+        examples=[{"ls": {"stdout": "file1.txt", "success": True}}],
+    )
+    """Map of command string to ExecutionResult kwargs dict."""
+
+    default_result: dict[str, Any] | None = Field(
+        default=None,
+        title="Default Result",
+        examples=[{"stdout": "", "success": True}],
+    )
+    """Default ExecutionResult kwargs when no specific match is found."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> MockExecutionEnvironment:
+        """Create mock execution environment instance."""
+        from exxec.mock_provider import MockExecutionEnvironment
+        from exxec.models import ExecutionResult
+
+        code_results = None
+        if self.code_results:
+            code_results = {k: ExecutionResult(**v) for k, v in self.code_results.items()}
+
+        command_results = None
+        if self.command_results:
+            command_results = {k: ExecutionResult(**v) for k, v in self.command_results.items()}
+
+        default_result = None
+        if self.default_result:
+            default_result = ExecutionResult(**self.default_result)
+
+        return MockExecutionEnvironment(
+            code_results=code_results,
+            command_results=command_results,
+            default_result=default_result,
+            cwd=self.cwd,
+        )
+
+
 class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """Pyodide execution environment configuration.
 
@@ -656,6 +716,7 @@ ExecutionEnvironmentConfig = Annotated[
     | DaytonaExecutionEnvironmentConfig
     | SRTExecutionEnvironmentConfig
     | MicrosandboxExecutionEnvironmentConfig
+    | MockExecutionEnvironmentConfig
     | ModalExecutionEnvironmentConfig
     | SshExecutionEnvironmentConfig
     | VercelExecutionEnvironmentConfig
