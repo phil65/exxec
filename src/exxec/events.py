@@ -12,7 +12,7 @@ class BaseExecutionEvent(BaseModel):
     """Base event for all execution events."""
 
     timestamp: datetime = Field(default_factory=datetime.now)
-    process_id: str | None = None
+    process_id: str
 
 
 class ProcessStartedEvent(BaseExecutionEvent):
