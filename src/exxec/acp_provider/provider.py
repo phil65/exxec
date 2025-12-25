@@ -81,7 +81,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         )
         self._fs = fs
         self._requests = requests
-        self._language = language
+        self._language: Language = language
 
     def get_fs(self) -> AsyncFileSystem:
         """Return ACP filesystem instance."""
