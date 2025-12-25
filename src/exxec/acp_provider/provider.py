@@ -22,7 +22,27 @@ if TYPE_CHECKING:
     from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
     from exxec.events import ExecutionEvent
-    from exxec.models import ServerInfo
+    from exxec.models import Language, ServerInfo
+
+
+def _get_execution_command(language: Language, code: str) -> str:
+    """Build the execution command based on language.
+
+    Args:
+        language: Programming language
+        code: Code to execute
+
+    Returns:
+        Shell command string to execute the code
+    """
+    quoted = shlex.quote(code)
+    match language:
+        case "python":
+            return f"uv run python -c {quoted}"
+        case "javascript":
+            return f"node -e {quoted}"
+        case "typescript":
+            return f"npx tsx -e {quoted}"
 
 
 class ACPExecutionEnvironment(ExecutionEnvironment):
@@ -40,6 +60,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         dependencies: list[str] | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        language: Language = "python",
     ) -> None:
         """Initialize ACP execution environment.
 
@@ -50,6 +71,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             dependencies: Optional list of dependencies (handled by client)
             cwd: Working directory for the environment
             env_vars: Environment variables to set for all executions
+            language: Programming language for code execution (python, javascript, typescript)
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -59,6 +81,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         )
         self._fs = fs
         self._requests = requests
+        self._language = language
 
     def get_fs(self) -> AsyncFileSystem:
         """Return ACP filesystem instance."""
@@ -84,8 +107,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """
         start_time = time.perf_counter()
         try:
-            # Use uv run python -c to execute code directly without temp files
-            command = f"uv run python -c {shlex.quote(code)}"
+            command = _get_execution_command(self._language, code)
             create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
             exit_result = await self._requests.wait_for_terminal_exit(terminal_id)
@@ -118,8 +140,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """
         start_time = time.perf_counter()
         process_id = str(uuid.uuid4())[:8]
-        # Use uv run python -c to execute code directly without temp files
-        command = f"uv run python -c {shlex.quote(code)}"
+        command = _get_execution_command(self._language, code)
         try:
             create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
