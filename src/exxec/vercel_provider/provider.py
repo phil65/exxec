@@ -70,6 +70,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         team_id: str | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ):
         """Initialize Vercel sandbox environment.
 
@@ -87,12 +88,14 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             team_id: Vercel team ID (uses environment if None)
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.runtime = runtime
         # Convert timeout from seconds to milliseconds for Vercel API
@@ -189,7 +192,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             script_path, wrapped_code = self._prepare_code_execution(code)
             await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command(cmd, args, env=self.env_vars or None)
+            result = await sandbox.run_command(cmd, args, env=self.get_env())
             stdout = await result.stdout()
             stderr = await result.stderr()
             execution_result, error_info = parse_output(stdout)
@@ -223,7 +226,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         cmd, args = parse_command(command)
         start_time = time.time()
         try:
-            result = await sandbox.run_command(cmd, args or None, env=self.env_vars or None)
+            result = await sandbox.run_command(cmd, args or None, env=self.get_env())
             stdout = await result.stdout()
             stderr = await result.stderr()
             success = result.exit_code == 0
@@ -248,7 +251,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             script_path, wrapped_code = self._prepare_code_execution(code)
             await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command_detached(cmd, args, env=self.env_vars or None)
+            result = await sandbox.run_command_detached(cmd, args, env=self.get_env())
             process_id = result.cmd_id
             yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
             async for log_line in sandbox.client.get_logs(
@@ -281,9 +284,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         process_id = f"vercel_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            async_cmd = await sandbox.run_command_detached(
-                cmd, args or None, env=self.env_vars or None
-            )
+            async_cmd = await sandbox.run_command_detached(cmd, args or None, env=self.get_env())
             async for log_line in sandbox.client.get_logs(
                 sandbox_id=sandbox.sandbox_id, cmd_id=async_cmd.cmd_id
             ):

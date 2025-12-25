@@ -40,6 +40,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
         **ssh_kwargs: Any,
     ) -> None:
         """Initialize SSH environment.
@@ -56,6 +57,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use
             cwd: Remote working directory (auto-generated if None)
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
             **ssh_kwargs: Additional arguments passed to asyncssh.connect()
         """
         super().__init__(
@@ -63,6 +65,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.host = host
         self.username = username
@@ -94,9 +97,10 @@ class SshExecutionEnvironment(ExecutionEnvironment):
 
     def _prepend_env_vars(self, command: str) -> str:
         """Prepend environment variable exports to a command."""
-        if not self.env_vars:
+        env = self.get_env()
+        if not env:
             return command
-        exports = " ".join(f"{k}={v!r}" for k, v in self.env_vars.items())
+        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
         return f"env {exports} {command}"
 
     async def run(self, command: str) -> SSHCompletedProcess:

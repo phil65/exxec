@@ -38,6 +38,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Docker environment.
 
@@ -49,12 +50,14 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.image = image
         self.timeout = timeout
@@ -73,7 +76,8 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             self.host_workdir, "/workspace", "rw"
         )
         # Add environment variables if specified
-        for key, value in self.env_vars.items():
+        env = self.get_env() or {}
+        for key, value in env.items():
             self.container = self.container.with_env(key, value)
 
         install_commands: list[str] = []  # Build install commands

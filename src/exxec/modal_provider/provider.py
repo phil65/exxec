@@ -64,6 +64,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Modal sandbox environment.
 
@@ -83,12 +84,14 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.app_name = app_name or "anyenv-execution"
         self.image = image
@@ -214,7 +217,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             process = await sandbox.exec.aio(
                 *command,
                 timeout=self.timeout,
-                env=self.env_vars or None,  # type: ignore[arg-type]
+                env=self.get_env(),  # type: ignore[arg-type]
             )
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
@@ -257,7 +260,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
                 cmd,
                 *args,
                 timeout=self.timeout,
-                env=self.env_vars or None,  # type: ignore[arg-type]
+                env=self.get_env(),  # type: ignore[arg-type]
             )
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
@@ -292,7 +295,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             process = await sandbox.exec.aio(
                 *exec_command,
                 timeout=self.timeout,
-                env=self.env_vars or None,  # type: ignore[arg-type]
+                env=self.get_env(),  # type: ignore[arg-type]
             )
 
             async for line in process.stdout:
@@ -326,7 +329,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
                 cmd,
                 *args,
                 timeout=self.timeout,
-                env=self.env_vars or None,  # type: ignore[arg-type]
+                env=self.get_env(),  # type: ignore[arg-type]
             )
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")

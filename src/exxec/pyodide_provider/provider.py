@@ -72,6 +72,7 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         deno_executable: str | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Pyodide environment.
 
@@ -89,12 +90,14 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
             deno_executable: Path to deno executable (auto-detected if None)
             cwd: Working directory for the sandbox
             env_vars: Environment variables (limited support in WASM)
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.timeout = timeout
         self.startup_timeout = startup_timeout

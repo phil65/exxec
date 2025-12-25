@@ -41,6 +41,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         image: str | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Microsandbox environment.
 
@@ -57,12 +58,14 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             image: Custom Docker image (uses default for language if None)
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions (via command prefix)
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.server_url = server_url
         self.namespace = namespace
@@ -78,18 +81,20 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
 
     def _get_env_prefix(self) -> str:
         """Get environment variable prefix for commands."""
-        if not self.env_vars:
+        env = self.get_env()
+        if not env:
             return ""
-        exports = " ".join(f"{k}={v!r}" for k, v in self.env_vars.items())
+        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
         return f"env {exports} "
 
     def _inject_env_vars_to_code(self, code: str) -> str:
         """Inject environment variables into Python code."""
-        if not self.env_vars or self.language != "python":
+        env = self.get_env()
+        if not env or self.language != "python":
             return code
         # Prepend os.environ updates
         env_setup = "import os\n"
-        for key, value in self.env_vars.items():
+        for key, value in env.items():
             env_setup += f"os.environ[{key!r}] = {value!r}\n"
         return env_setup + code
 

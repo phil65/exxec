@@ -40,6 +40,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         deterministic_ids: bool = False,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize mock execution environment.
 
@@ -54,8 +55,9 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             cwd: Working directory for the sandbox
             deterministic_ids: If True, use sequential IDs instead of UUIDs for processes
             env_vars: Environment variables (stored but not used in mock)
+            inherit_env: If True, inherit environment variables from os.environ
         """
-        super().__init__(cwd=cwd, env_vars=env_vars)
+        super().__init__(cwd=cwd, env_vars=env_vars, inherit_env=inherit_env)
         self._code_results = code_results or {}
         self._command_results = command_results or {}
         self._code_exceptions = code_exceptions or {}

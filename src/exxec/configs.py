@@ -69,6 +69,12 @@ class BaseExecutionEnvironmentConfig(Schema):
     )
     """Environment variables to set for all executions."""
 
+    inherit_env: bool = Field(
+        default=False,
+        title="Inherit Environment",
+    )
+    """If True, inherit environment variables from os.environ (default False for security)."""
+
 
 class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """Local execution environment configuration.
@@ -120,6 +126,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             root_path=self.root_path,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -161,6 +168,7 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -204,6 +212,7 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -255,6 +264,7 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -311,6 +321,7 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             keep_alive=self.keep_alive,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -357,6 +368,7 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -425,6 +437,7 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             image=self.image,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -486,6 +499,7 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -544,6 +558,7 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -602,6 +617,7 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             team_id=self.team_id,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -676,6 +692,7 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             deterministic_ids=self.deterministic_ids,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
         # Pre-populate files in the in-memory filesystem
@@ -746,6 +763,7 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             deno_executable=self.deno_executable,
             cwd=self.cwd,
             env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 

@@ -63,6 +63,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize E2B environment.
 
@@ -75,12 +76,14 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.template = template
         self.timeout = timeout
@@ -151,7 +154,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             script_path = get_script_path(self.language)
             await sandbox.files.write(script_path, wrapped_code)
             command = _get_execution_command(self.language, script_path)
-            result = await sandbox.commands.run(command, envs=self.env_vars or None)
+            result = await sandbox.commands.run(command, envs=self.get_env())
             execution_result, error_info = parse_output(result.stdout)
             if result.exit_code == 0 and error_info is None:
                 return ExecutionResult(
@@ -185,7 +188,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         start_time = time.time()
         try:
             result = await sandbox.commands.run(
-                command, timeout=int(self.timeout), envs=self.env_vars or None
+                command, timeout=int(self.timeout), envs=self.get_env()
             )
             success = result.exit_code == 0
             return ExecutionResult(
@@ -232,7 +235,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
                 timeout=int(self.timeout),
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
-                envs=self.env_vars or None,
+                envs=self.get_env(),
             )
 
             for event in stdout_events:
@@ -279,7 +282,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
                 timeout=int(self.timeout),
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
-                envs=self.env_vars or None,
+                envs=self.get_env(),
             )
 
             for event in stdout_events:

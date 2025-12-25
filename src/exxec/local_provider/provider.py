@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
-import os
 import platform
 import shutil
 import sys
@@ -56,6 +55,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         root_path: str | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize local environment.
 
@@ -69,12 +69,14 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             root_path: Path to become to root of the filesystem
             cwd: Working directory for the environment
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.timeout = timeout
         self.isolated = isolated
@@ -84,12 +86,6 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.root_path = root_path
         # Local provider knows OS statically
         self._os_type = platform.system()  # type: ignore[assignment]
-
-    def _get_env(self) -> dict[str, str] | None:
-        """Get environment variables merged with current environment."""
-        if not self.env_vars:
-            return None
-        return {**os.environ, **self.env_vars}
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class
@@ -183,7 +179,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             wrapped_code = wrap_code(code, self.language)
             args = self._get_subprocess_args()
             process = await create_process(
-                *args, stdin="pipe", stdout="pipe", stderr="pipe", env=self._get_env()
+                *args, stdin="pipe", stdout="pipe", stderr="pipe", env=self.get_env()
             )
             self.process = process
             stdout_data, stderr_data = await asyncio.wait_for(
@@ -271,7 +267,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
         try:
             process = await create_shell_process(
-                command, stdout="pipe", stderr="pipe", env=self._get_env()
+                command, stdout="pipe", stderr="pipe", env=self.get_env()
             )
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=self.timeout
@@ -320,7 +316,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         try:
             args = self._get_subprocess_args()
             process = await create_process(
-                *args, stdin="pipe", stdout="pipe", stderr="stdout", env=self._get_env()
+                *args, stdin="pipe", stdout="pipe", stderr="stdout", env=self.get_env()
             )
             self.process = process
 
@@ -454,7 +450,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
             process = await create_shell_process(
-                command, stdout="pipe", stderr="stdout", env=self._get_env()
+                command, stdout="pipe", stderr="stdout", env=self.get_env()
             )
             if process.stdout is not None:
                 while True:

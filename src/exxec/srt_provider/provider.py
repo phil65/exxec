@@ -43,6 +43,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize sandboxed execution environment.
 
@@ -55,6 +56,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             language: Programming language
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         # Force isolated mode - sandbox only works with subprocess
         super().__init__(
@@ -66,6 +68,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             language=language,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()

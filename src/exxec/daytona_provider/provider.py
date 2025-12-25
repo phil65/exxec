@@ -41,6 +41,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Daytona environment.
 
@@ -56,6 +57,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use for execution
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         from daytona import AsyncDaytona, DaytonaConfig  # type: ignore[import-untyped]
 
@@ -64,6 +66,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.image = image
         self.timeout = timeout
@@ -133,7 +136,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             response = await self.sandbox.process.exec(
                 f"python -c '{wrapped_code}'",
                 timeout=int(self.timeout),
-                env=self.env_vars or None,
+                env=self.get_env(),
             )
             # Parse execution results
             if response.exit_code == 0:
@@ -177,7 +180,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         start_time = time.time()
         try:
             response = await self.sandbox.process.exec(
-                command, timeout=int(self.timeout), env=self.env_vars or None
+                command, timeout=int(self.timeout), env=self.get_env()
             )
             success = response.exit_code == 0
             return ExecutionResult(

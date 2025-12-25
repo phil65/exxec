@@ -31,6 +31,7 @@ class ExecutionEnvironment(ABC):
         dependencies: list[str] | None = None,
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize execution environment with optional lifespan handler.
@@ -40,6 +41,7 @@ class ExecutionEnvironment(ABC):
             dependencies: Optional list of dependencies to install
             cwd: Working directory for the environment (None means use default/auto)
             env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
             **kwargs: Additional keyword arguments for specific providers
         """
         self.lifespan_handler = lifespan_handler
@@ -47,8 +49,24 @@ class ExecutionEnvironment(ABC):
         self.dependencies = dependencies or []
         self.cwd = cwd
         self.env_vars = env_vars or {}
+        self.inherit_env = inherit_env
         self._process_manager: ProcessManagerProtocol | None = None
         self._os_type: OSType | None = None
+
+    def get_env(self) -> dict[str, str] | None:
+        """Get environment variables, optionally merged with os.environ.
+
+        Returns:
+            Merged environment dict if inherit_env=True or env_vars set,
+            None otherwise.
+        """
+        import os
+
+        if not self.env_vars and not self.inherit_env:
+            return None
+        if self.inherit_env:
+            return {**os.environ, **(self.env_vars or {})}
+        return self.env_vars or None
 
     async def __aenter__(self) -> Self:
         """Setup environment (start server, spawn process, etc.)."""
