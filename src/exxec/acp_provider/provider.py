@@ -10,7 +10,6 @@ import uuid
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
-from exxec.parse_output import parse_command
 
 
 if TYPE_CHECKING:
@@ -148,23 +147,37 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id, exit_code=1)
 
-    async def _create_terminal(self, cmd: str, args: list[str]) -> TerminalHandle:
-        """Create a terminal session with the given command and arguments."""
+    async def _create_terminal(self, cmd: str, args: list[str] | None = None) -> TerminalHandle:
+        """Create a terminal session with the given command and arguments.
+
+        Args:
+            cmd: Command to execute. For shell commands with pipes/redirects,
+                pass the full command string here without args.
+            args: Optional command arguments. When None or empty, the ACP client
+                will interpret cmd as a shell command (allowing pipes, etc.).
+                When provided, the command is executed directly without shell.
+
+        Note:
+            Following the ACP protocol pattern used by claude-code-acp: when args
+            is omitted, the client runs the command through a shell, enabling
+            shell features like pipes (|), redirects (>), and command chaining (&&).
+        """
         return await self._requests.create_terminal(cmd, args=args, output_byte_limit=1048576)
 
     async def execute_command(self, command: str) -> ExecutionResult:
         """Execute a terminal command using ACP terminal capabilities.
 
         Args:
-            command: Terminal command to execute
+            command: Terminal command to execute (supports shell features like pipes)
 
         Returns:
             ExecutionResult with command output and metadata
         """
-        cmd, args = parse_command(command)
         start_time = time.perf_counter()
         try:
-            create_response = await self._create_terminal(cmd=cmd, args=args)
+            # Pass command directly without splitting - ACP clients run it through
+            # a shell when args is not provided, enabling pipes, redirects, etc.
+            create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
             exit_result = await self._requests.wait_for_terminal_exit(terminal_id)
             output_response = await self._requests.terminal_output(terminal_id)
@@ -188,16 +201,17 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """Execute a terminal command and stream events.
 
         Args:
-            command: Terminal command to execute
+            command: Terminal command to execute (supports shell features like pipes)
 
         Yields:
             ExecutionEvent objects as they occur
         """
-        cmd, args = parse_command(command)
         start_time = time.perf_counter()
         terminal_id: str | None = None
         try:
-            create_response = await self._create_terminal(cmd=cmd, args=args)
+            # Pass command directly without splitting - ACP clients run it through
+            # a shell when args is not provided, enabling pipes, redirects, etc.
+            create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
             # Use terminal_id as process_id for ACP terminal embedding
             yield ProcessStartedEvent(process_id=terminal_id, command=command)
