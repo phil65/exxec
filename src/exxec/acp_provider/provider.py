@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import shlex
 import time
 from typing import TYPE_CHECKING
 import uuid
@@ -84,18 +84,13 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """
         start_time = time.perf_counter()
         try:
-            script_id = str(uuid.uuid4())[:8]
-            script_name = f"temp_script_{script_id}.py"
-            # Write code to temporary file using ACP filesystem
-            self._fs.write_text(script_name, code)
-            # Execute using ACP terminal
-            create_response = await self._create_terminal(cmd="python", args=[script_name])
+            # Use uv run python -c to execute code directly without temp files
+            command = f"uv run python -c {shlex.quote(code)}"
+            create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
             exit_result = await self._requests.wait_for_terminal_exit(terminal_id)
             output_response = await self._requests.terminal_output(terminal_id)
             await self._requests.release_terminal(terminal_id)
-            with contextlib.suppress(Exception):
-                await self._fs._rm(script_name)
 
             exit_code = exit_result.exit_code or 0
             duration = time.perf_counter() - start_time
@@ -123,17 +118,15 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         """
         start_time = time.perf_counter()
         process_id = str(uuid.uuid4())[:8]
-        script_name = f"temp_script_{process_id}.py"
+        # Use uv run python -c to execute code directly without temp files
+        command = f"uv run python -c {shlex.quote(code)}"
         try:
-            self._fs.write_text(script_name, code)
-            create_response = await self._create_terminal("python", args=[script_name])
+            create_response = await self._create_terminal(cmd=command)
             terminal_id = create_response.terminal_id
-            yield ProcessStartedEvent(process_id=process_id, command=f"python {script_name}")
+            yield ProcessStartedEvent(process_id=process_id, command=command)
             exit_result = await self._requests.wait_for_terminal_exit(terminal_id)
             response = await self._requests.terminal_output(terminal_id)
             await self._requests.release_terminal(terminal_id)
-            with contextlib.suppress(Exception):
-                await self._fs._rm(script_name)
             if response.output:
                 yield OutputEvent(process_id=process_id, data=response.output, stream="combined")
             exit_code = exit_result.exit_code or 0
