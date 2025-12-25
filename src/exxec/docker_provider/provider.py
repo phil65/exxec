@@ -37,6 +37,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 60.0,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Docker environment.
 
@@ -47,8 +48,14 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             timeout: Execution timeout in seconds
             language: Programming language to use
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.image = image
         self.timeout = timeout
         self.language: Language = language
@@ -65,6 +72,9 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         self.container = DockerContainer(self.image).with_volume_mapping(
             self.host_workdir, "/workspace", "rw"
         )
+        # Add environment variables if specified
+        for key, value in self.env_vars.items():
+            self.container = self.container.with_env(key, value)
 
         install_commands: list[str] = []  # Build install commands
         if self.server_info:

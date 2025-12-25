@@ -63,6 +63,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         workdir: str = "/tmp",
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Modal sandbox environment.
 
@@ -81,8 +82,14 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             workdir: Working directory in sandbox
             language: Programming language to use
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.app_name = app_name or "anyenv-execution"
         self.image = image
         self.volumes = volumes or {}
@@ -204,7 +211,11 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             with await sandbox.open.aio(script_path, "w") as f:
                 await f.write.aio(script_content)
             command = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*command, timeout=self.timeout)
+            process = await sandbox.exec.aio(
+                *command,
+                timeout=self.timeout,
+                env=self.env_vars or None,  # type: ignore[arg-type]
+            )
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -242,7 +253,12 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         start_time = time.time()
 
         try:
-            process = await sandbox.exec.aio(cmd, *args, timeout=self.timeout)
+            process = await sandbox.exec.aio(
+                cmd,
+                *args,
+                timeout=self.timeout,
+                env=self.env_vars or None,  # type: ignore[arg-type]
+            )
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -273,7 +289,11 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             with await sandbox.open.aio(script_path, "w") as f:
                 await f.write.aio(script_content)
             exec_command = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*exec_command, timeout=self.timeout)
+            process = await sandbox.exec.aio(
+                *exec_command,
+                timeout=self.timeout,
+                env=self.env_vars or None,  # type: ignore[arg-type]
+            )
 
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
@@ -302,7 +322,12 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         process_id = f"modal_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            process = await sandbox.exec.aio(cmd, *args, timeout=self.timeout)
+            process = await sandbox.exec.aio(
+                cmd,
+                *args,
+                timeout=self.timeout,
+                env=self.env_vars or None,  # type: ignore[arg-type]
+            )
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
             async for line in process.stderr:

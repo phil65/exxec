@@ -40,6 +40,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         keep_alive: bool = False,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Daytona environment.
 
@@ -54,10 +55,16 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             keep_alive: Keep sandbox running after execution
             language: Programming language to use for execution
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
         from daytona import AsyncDaytona, DaytonaConfig  # type: ignore[import-untyped]
 
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.image = image
         self.timeout = timeout
         self.keep_alive = keep_alive
@@ -124,7 +131,9 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         wrapped_code = wrap_python_code(code)
         try:
             response = await self.sandbox.process.exec(
-                f"python -c '{wrapped_code}'", timeout=int(self.timeout)
+                f"python -c '{wrapped_code}'",
+                timeout=int(self.timeout),
+                env=self.env_vars or None,
             )
             # Parse execution results
             if response.exit_code == 0:
@@ -167,7 +176,9 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         """Execute a terminal command in the Daytona sandbox."""
         start_time = time.time()
         try:
-            response = await self.sandbox.process.exec(command, timeout=int(self.timeout))
+            response = await self.sandbox.process.exec(
+                command, timeout=int(self.timeout), env=self.env_vars or None
+            )
             success = response.exit_code == 0
             return ExecutionResult(
                 result=response.result if success else None,

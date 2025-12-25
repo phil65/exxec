@@ -42,6 +42,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         executable: str | None = None,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize sandboxed execution environment.
 
@@ -53,6 +54,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             executable: Executable to use (auto-detect if None)
             language: Programming language
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
         # Force isolated mode - sandbox only works with subprocess
         super().__init__(
@@ -63,6 +65,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             executable=executable,
             language=language,
             cwd=cwd,
+            env_vars=env_vars,
         )
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()

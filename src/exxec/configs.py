@@ -62,6 +62,13 @@ class BaseExecutionEnvironmentConfig(Schema):
     )
     """Working directory for the environment (None means use default/auto)."""
 
+    env_vars: dict[str, str] | None = Field(
+        default=None,
+        title="Environment Variables",
+        examples=[{"API_KEY": "secret", "DEBUG": "1"}],
+    )
+    """Environment variables to set for all executions."""
+
 
 class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """Local execution environment configuration.
@@ -112,6 +119,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             root_path=self.root_path,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -152,6 +160,7 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -194,6 +203,7 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             keep_alive=self.keep_alive,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -244,6 +254,7 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -299,6 +310,7 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             keep_alive=self.keep_alive,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -344,6 +356,7 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             executable=self.executable,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -411,6 +424,7 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             language=self.language,
             image=self.image,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -471,6 +485,7 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             workdir=self.workdir,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -528,6 +543,7 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             timeout=self.timeout,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -585,6 +601,7 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             project_id=self.project_id,
             team_id=self.team_id,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 
@@ -658,6 +675,7 @@ class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             default_result=default_result,
             deterministic_ids=self.deterministic_ids,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
         # Pre-populate files in the in-memory filesystem
@@ -727,6 +745,7 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             allow_ffi=self.allow_ffi,
             deno_executable=self.deno_executable,
             cwd=self.cwd,
+            env_vars=self.env_vars,
         )
 
 

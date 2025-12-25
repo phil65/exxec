@@ -45,6 +45,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 300.0,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Beam environment.
 
@@ -57,8 +58,14 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
             timeout: Execution timeout in seconds
             language: Programming language to use
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.cpu = cpu
         self.memory = memory
         self.keep_warm_seconds = keep_warm_seconds
@@ -158,7 +165,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         cmd, args = parse_command(command)
         start_time = time.time()
         try:
-            process = self.instance.process.exec(cmd, *args)
+            process = self.instance.process.exec(cmd, *args, env=self.env_vars or None)
             exit_code = await asyncio.to_thread(process.wait)
             output = "\n".join(line.rstrip("\n\r") for line in process.logs)
             success = exit_code == 0
@@ -218,7 +225,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         cmd, args = parse_command(command)
         process_id: str | None = None
         try:
-            process = self.instance.process.exec(cmd, *args)
+            process = self.instance.process.exec(cmd, *args, env=self.env_vars or None)
             process_id = str(process.pid)
             yield ProcessStartedEvent(process_id=process_id, command=command)
             for line in process.logs:

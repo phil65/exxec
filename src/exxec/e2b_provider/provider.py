@@ -62,6 +62,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         keep_alive: bool = False,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize E2B environment.
 
@@ -73,8 +74,14 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             keep_alive: Keep sandbox running after execution
             language: Programming language to use
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.template = template
         self.timeout = timeout
         self.keep_alive = keep_alive
@@ -144,7 +151,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             script_path = get_script_path(self.language)
             await sandbox.files.write(script_path, wrapped_code)
             command = _get_execution_command(self.language, script_path)
-            result = await sandbox.commands.run(command)
+            result = await sandbox.commands.run(command, envs=self.env_vars or None)
             execution_result, error_info = parse_output(result.stdout)
             if result.exit_code == 0 and error_info is None:
                 return ExecutionResult(
@@ -177,7 +184,9 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         start_time = time.time()
         try:
-            result = await sandbox.commands.run(command, timeout=int(self.timeout))
+            result = await sandbox.commands.run(
+                command, timeout=int(self.timeout), envs=self.env_vars or None
+            )
             success = result.exit_code == 0
             return ExecutionResult(
                 result=result.stdout if success else None,
@@ -223,6 +232,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
                 timeout=int(self.timeout),
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
+                envs=self.env_vars or None,
             )
 
             for event in stdout_events:
@@ -269,6 +279,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
                 timeout=int(self.timeout),
                 on_stdout=on_stdout,
                 on_stderr=on_stderr,
+                envs=self.env_vars or None,
             )
 
             for event in stdout_events:

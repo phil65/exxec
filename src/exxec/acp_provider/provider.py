@@ -39,6 +39,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize ACP execution environment.
 
@@ -48,8 +49,14 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             lifespan_handler: Optional async context manager for tool server
             dependencies: Optional list of dependencies (handled by client)
             cwd: Working directory for the environment
+            env_vars: Environment variables to set for all executions
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self._fs = fs
         self._requests = requests
 
@@ -162,7 +169,9 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             is omitted, the client runs the command through a shell, enabling
             shell features like pipes (|), redirects (>), and command chaining (&&).
         """
-        return await self._requests.create_terminal(cmd, args=args, output_byte_limit=1048576)
+        return await self._requests.create_terminal(
+            cmd, args=args, output_byte_limit=1048576, env=self.env_vars or None
+        )
 
     async def execute_command(self, command: str) -> ExecutionResult:
         """Execute a terminal command using ACP terminal capabilities.

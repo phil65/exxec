@@ -40,6 +40,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         language: Language = "python",
         image: str | None = None,
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Microsandbox environment.
 
@@ -55,8 +56,14 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             language: Programming language to use
             image: Custom Docker image (uses default for language if None)
             cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions (via command prefix)
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.server_url = server_url
         self.namespace = namespace
         self.api_key = api_key
@@ -68,6 +75,23 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         self.sandbox: PythonSandbox | NodeSandbox | None = None
         # Microsandbox runs Linux containers
         self._os_type = "Linux"
+
+    def _get_env_prefix(self) -> str:
+        """Get environment variable prefix for commands."""
+        if not self.env_vars:
+            return ""
+        exports = " ".join(f"{k}={v!r}" for k, v in self.env_vars.items())
+        return f"env {exports} "
+
+    def _inject_env_vars_to_code(self, code: str) -> str:
+        """Inject environment variables into Python code."""
+        if not self.env_vars or self.language != "python":
+            return code
+        # Prepend os.environ updates
+        env_setup = "import os\n"
+        for key, value in self.env_vars.items():
+            env_setup += f"os.environ[{key!r}] = {value!r}\n"
+        return env_setup + code
 
     def _ensure_initialized(self) -> PythonSandbox | NodeSandbox:
         """Validate that the environment is properly initialized.
@@ -140,7 +164,9 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         start_time = time.time()
         try:
-            execution = await sandbox.run(code)
+            # Inject environment variables into code for Python
+            code_with_env = self._inject_env_vars_to_code(code)
+            execution = await sandbox.run(code_with_env)
             stdout = await execution.output()
             stderr = await execution.error()
             success = not execution.has_error()
@@ -169,7 +195,9 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
     async def execute_command(self, command: str) -> ExecutionResult:
         """Execute a terminal command in the Microsandbox environment."""
         sandbox = self._ensure_initialized()
-        cmd, args = parse_command(command)
+        # Prepend environment variables to command
+        full_command = self._get_env_prefix() + command
+        cmd, args = parse_command(full_command)
         start_time = time.time()
         try:
             execution = await sandbox.command.run(cmd, args)

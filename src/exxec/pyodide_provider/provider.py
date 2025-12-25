@@ -71,6 +71,7 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         allow_ffi: bool | list[str] = False,
         deno_executable: str | None = None,
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
     ) -> None:
         """Initialize Pyodide environment.
 
@@ -87,8 +88,14 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
             allow_ffi: Foreign function interface access
             deno_executable: Path to deno executable (auto-detected if None)
             cwd: Working directory for the sandbox
+            env_vars: Environment variables (limited support in WASM)
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.timeout = timeout
         self.startup_timeout = startup_timeout
         self.allow_net = allow_net

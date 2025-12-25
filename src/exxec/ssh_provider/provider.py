@@ -39,6 +39,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 60.0,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
         **ssh_kwargs: Any,
     ) -> None:
         """Initialize SSH environment.
@@ -54,9 +55,15 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             timeout: Execution timeout in seconds
             language: Programming language to use
             cwd: Remote working directory (auto-generated if None)
+            env_vars: Environment variables to set for all executions
             **ssh_kwargs: Additional arguments passed to asyncssh.connect()
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies, cwd=cwd)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+        )
         self.host = host
         self.username = username
         self.password = password
@@ -85,9 +92,17 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             raise RuntimeError(msg)
         return self.connection
 
+    def _prepend_env_vars(self, command: str) -> str:
+        """Prepend environment variable exports to a command."""
+        if not self.env_vars:
+            return command
+        exports = " ".join(f"{k}={v!r}" for k, v in self.env_vars.items())
+        return f"env {exports} {command}"
+
     async def run(self, command: str) -> SSHCompletedProcess:
         """Run a command on the remote machine with login shell."""
         connection = self._ensure_connected()
+        command = self._prepend_env_vars(command)
         return await connection.run(wrap_command(command))
 
     async def __aenter__(self) -> Self:
