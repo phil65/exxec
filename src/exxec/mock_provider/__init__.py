@@ -5,9 +5,11 @@ from exxec.mock_provider.process_manager import (
     MockProcessManager,
 )
 from exxec.mock_provider.provider import MockExecutionEnvironment
+from exxec.mock_provider.pty_manager import MockPtyManager
 
 __all__ = [
     "MockExecutionEnvironment",
     "MockProcessInfo",
     "MockProcessManager",
+    "MockPtyManager",
 ]

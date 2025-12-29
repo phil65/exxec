@@ -30,6 +30,7 @@ classifiers = [
 ]
 dependencies = [
   "anyenv>=1.11.6",
+  "ptyprocess>=0.7.0",
   "pydantic",
   "schemez",
   # Only add below (Copier)

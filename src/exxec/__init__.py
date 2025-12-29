@@ -17,22 +17,23 @@ from typing import Any, Literal, overload, TYPE_CHECKING, assert_never
 from exxec.base import ExecutionEnvironment, OSType
 
 from exxec.beam_provider import BeamExecutionEnvironment
-from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager
-from exxec.daytona_provider import DaytonaExecutionEnvironment
-from exxec.docker_provider import DockerExecutionEnvironment
-from exxec.local_provider import LocalExecutionEnvironment
+from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager, MockPtyManager
+from exxec.daytona_provider import DaytonaExecutionEnvironment, DaytonaPtyManager
+from exxec.docker_provider import DockerExecutionEnvironment, DockerPtyManager
+from exxec.local_provider import LocalExecutionEnvironment, LocalPtyManager
 from exxec.pyodide_provider import PyodideExecutionEnvironment
-from exxec.e2b_provider import E2bExecutionEnvironment
+from exxec.e2b_provider import E2bExecutionEnvironment, E2BPtyManager
 from exxec.srt_provider import SRTExecutionEnvironment, SandboxConfig
 from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
-from exxec.modal_provider import ModalExecutionEnvironment
+from exxec.modal_provider import ModalExecutionEnvironment, ModalPtyManager
 from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment, VercelRuntime
 from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
 # from exxec.server import fastapi_tool_server
 from exxec.configs import ExecutionEnvironmentConfig
-from exxec.ssh_provider import SshExecutionEnvironment
+from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
+from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
@@ -299,26 +300,41 @@ def get_environment(  # noqa: PLR0911
 
 
 __all__ = [
+    # Base classes and protocols
+    "BasePtyManager",
+    # Execution environments
     "BeamExecutionEnvironment",
     "DaytonaExecutionEnvironment",
+    # PTY managers
+    "DaytonaPtyManager",
     "DockerExecutionEnvironment",
+    "DockerPtyManager",
+    "E2BPtyManager",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",
     "ExecutionEnvironmentConfig",
     "ExecutionResult",
     "LocalExecutionEnvironment",
+    "LocalPtyManager",
     "MicrosandboxExecutionEnvironment",
     "MockExecutionEnvironment",
     "MockProcessManager",
+    "MockPtyManager",
     "ModalExecutionEnvironment",
+    "ModalPtyManager",
     "OSType",
+    "PtyInfo",
+    "PtyManagerProtocol",
+    "PtySize",
     "PyodideExecutionEnvironment",
     "SRTExecutionEnvironment",
     "SandboxConfig",
     "ServerInfo",
     "SshExecutionEnvironment",
+    "SshPtyManager",
     "VercelExecutionEnvironment",
     "VercelRuntime",
+    # Utilities
     "create_remote_callable",
     "get_environment",
     "infer_package_dependencies",
