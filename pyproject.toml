@@ -289,6 +289,9 @@ python-platform = "all"
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]
 
+# Override to resolve beam-client (<14) vs daytona (>=15) websockets conflict
+override-dependencies = ["websockets>=15.0.0"]
+
 [tool.uv.build-backend]
 wheel-exclude = [
   ".mypy_cache/**",
