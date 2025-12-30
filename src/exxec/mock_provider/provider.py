@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
     from exxec.events import ExecutionEvent
+    from exxec.mock_provider.pty_manager import MockPtyManager
 
 
 class MockExecutionEnvironment(ExecutionEnvironment):
@@ -103,6 +104,12 @@ class MockExecutionEnvironment(ExecutionEnvironment):
     def get_fs(self) -> AsyncFileSystem:
         """Return the async-wrapped memory filesystem."""
         return self._fs
+
+    def get_pty_manager(self) -> MockPtyManager:
+        """Return a MockPtyManager for testing interactive terminal sessions."""
+        from exxec.mock_provider.pty_manager import MockPtyManager
+
+        return MockPtyManager()
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code and return mock result."""

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from upathtools.filesystems import ModalFS
 
     from exxec.events import ExecutionEvent
+    from exxec.modal_provider.pty_manager import ModalPtyManager
     from exxec.models import Language, ServerInfo
 
 
@@ -201,6 +202,13 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
 
         sandbox = self._ensure_initialized()
         return ModalFS(sandbox_id=sandbox.object_id)
+
+    def get_pty_manager(self) -> ModalPtyManager:
+        """Return a ModalPtyManager for interactive terminal sessions."""
+        from exxec.modal_provider.pty_manager import ModalPtyManager
+
+        sandbox = self._ensure_initialized()
+        return ModalPtyManager(sandbox)
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Modal sandbox."""

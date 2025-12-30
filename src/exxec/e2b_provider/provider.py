@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from e2b import AsyncSandbox  # type: ignore[import-untyped]
     from upathtools.filesystems import E2BFS
 
+    from exxec.e2b_provider.pty_manager import E2BPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
 
@@ -139,6 +140,13 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
 
         sandbox = self._ensure_initialized()
         return E2BFS(sandbox_id=sandbox.sandbox_id)
+
+    def get_pty_manager(self) -> E2BPtyManager:
+        """Return an E2BPtyManager for interactive terminal sessions."""
+        from exxec.e2b_provider.pty_manager import E2BPtyManager
+
+        sandbox = self._ensure_initialized()
+        return E2BPtyManager(sandbox)
 
     async def get_domain(self, port: int) -> str:
         """Return the domain name for the sandbox."""

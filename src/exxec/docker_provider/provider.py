@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from fsspec.implementations.dirfs import DirFileSystem  # type: ignore[import-untyped]
     from testcontainers.core.container import DockerContainer  # type: ignore[import-untyped]
 
+    from exxec.docker_provider.pty_manager import DockerPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
 
@@ -127,6 +128,15 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             msg = "Docker environment not started"
             raise RuntimeError(msg)
         return DirFileSystem(path=self.host_workdir, fs=AsyncLocalFileSystem())
+
+    def get_pty_manager(self) -> DockerPtyManager:
+        """Return a DockerPtyManager for interactive terminal sessions."""
+        from exxec.docker_provider.pty_manager import DockerPtyManager
+
+        if not self.container:
+            msg = "Docker environment not started"
+            raise RuntimeError(msg)
+        return DockerPtyManager(self.container.get_wrapped_container())
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in Docker container."""

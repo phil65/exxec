@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import ExecutionResult, ServerInfo
+    from exxec.pty_manager import PtyManagerProtocol
 
 
 OSType = Literal["Windows", "Darwin", "Linux"]
@@ -146,6 +147,18 @@ class ExecutionEnvironment(ABC):
     def get_fs(self) -> AsyncFileSystem:
         """Return a MicrosandboxFS instance for the sandbox."""
         msg = "VFS is not supported"
+        raise NotImplementedError(msg)
+
+    def get_pty_manager(self) -> PtyManagerProtocol:
+        """Return a PTY manager for interactive terminal sessions.
+
+        Returns:
+            A PtyManagerProtocol implementation for this environment.
+
+        Raises:
+            NotImplementedError: If PTY is not supported by this provider.
+        """
+        msg = "PTY is not supported"
         raise NotImplementedError(msg)
 
     async def set_file_content(self, path: str, content: str | bytes) -> None:

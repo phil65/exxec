@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
     from exxec.events import ExecutionEvent
+    from exxec.local_provider.pty_manager import LocalPtyManager
     from exxec.models import Language, ServerInfo
 
 
@@ -129,6 +130,12 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         if self.root_path:
             return DirFileSystem(self.root_path, fs)
         return fs
+
+    def get_pty_manager(self) -> LocalPtyManager:
+        """Return a LocalPtyManager for interactive terminal sessions."""
+        from exxec.local_provider.pty_manager import LocalPtyManager
+
+        return LocalPtyManager(cwd=self.cwd)
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in same process or isolated subprocess."""

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from daytona._async.sandbox import AsyncSandbox  # type: ignore[import-untyped]
     from upathtools.filesystems import DaytonaFS
 
+    from exxec.daytona_provider.pty_manager import DaytonaPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
 
@@ -127,6 +128,12 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         from upathtools.filesystems import DaytonaFS
 
         return DaytonaFS(sandbox_id=self.sandbox.id)
+
+    def get_pty_manager(self) -> DaytonaPtyManager:
+        """Return a DaytonaPtyManager for interactive terminal sessions."""
+        from exxec.daytona_provider.pty_manager import DaytonaPtyManager
+
+        return DaytonaPtyManager(self.sandbox)
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Daytona sandbox."""

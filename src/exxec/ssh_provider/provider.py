@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.ssh_provider.pty_manager import SshPtyManager
 
 
 class SshExecutionEnvironment(ExecutionEnvironment):
@@ -202,6 +203,13 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             msg = "Filesystem not available. Use 'async with' context manager first."
             raise RuntimeError(msg)
         return self._fs
+
+    def get_pty_manager(self) -> SshPtyManager:
+        """Return a SshPtyManager for interactive terminal sessions."""
+        from exxec.ssh_provider.pty_manager import SshPtyManager
+
+        connection = self._ensure_connected()
+        return SshPtyManager(connection)
 
     async def _verify_tools(self) -> None:
         """Verify that required tools are available on the remote machine."""
