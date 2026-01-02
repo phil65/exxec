@@ -54,7 +54,7 @@ class TestProcessManager:
             # Verify it's dead
             info = await pm.get_process_info(process_id)
             assert info["is_running"] is False
-            assert info["exit_code"] == 130  # SIGINT
+            assert info["exit_code"] == 130  # SIGINT  # noqa: PLR2004
 
     async def test_process_without_output_timeout(self):
         """Test that a process without immediate output doesn't timeout.
@@ -149,10 +149,10 @@ class TestProcessManager:
 
             # Wait for completion
             exit_code = await pm.wait_for_exit(process_id)
-            assert exit_code == 42
+            assert exit_code == 42  # noqa: PLR2004
 
             info = await pm.get_process_info(process_id)
-            assert info["exit_code"] == 42
+            assert info["exit_code"] == 42  # noqa: PLR2004
 
 
 class TestProcessManagerDaemonSupport:
