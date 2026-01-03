@@ -62,7 +62,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
-            timeout=timeout,
+            default_command_timeout=timeout,
             isolated=True,
             executable=executable,
             language=language,
@@ -70,6 +70,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             env_vars=env_vars,
             inherit_env=inherit_env,
         )
+        self.timeout = timeout  # Store for srt settings
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()
         atexit.register(self._cleanup_settings_file)

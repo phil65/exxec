@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
@@ -60,6 +60,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         dependencies: list[str] | None = None,
         template: str | None = None,
         timeout: float = 300.0,
+        default_command_timeout: float | None = None,
         keep_alive: bool = False,
         language: Language = "python",
         cwd: str | None = None,
@@ -72,7 +73,9 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of packages to install via pip / npm
             template: E2B template name/ID (uses 'base' if None)
-            timeout: Sandbox timeout in seconds
+            timeout: Sandbox lifetime in seconds (how long the sandbox stays alive)
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
             keep_alive: Keep sandbox running after execution
             language: Programming language to use
             cwd: Working directory for the sandbox
@@ -85,6 +88,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.template = template
         self.timeout = timeout
@@ -190,14 +194,22 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
             error_type = _get_error_type(e)
             return ExecutionResult.failed(e, start_time, error_type=error_type)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the E2B sandbox."""
         sandbox = self._ensure_initialized()
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         try:
-            result = await sandbox.commands.run(
-                command, timeout=int(self.timeout), envs=self.get_env()
-            )
+            # Only pass timeout if specified, otherwise let command run indefinitely
+            run_kwargs: dict[str, Any] = {"envs": self.get_env()}
+            if effective_timeout is not None:
+                run_kwargs["timeout"] = int(effective_timeout)
+            result = await sandbox.commands.run(command, **run_kwargs)
             success = result.exit_code == 0
             return ExecutionResult(
                 result=result.stdout if success else None,
@@ -264,9 +276,15 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the E2B sandbox."""
         sandbox = self._ensure_initialized()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         process_id = f"e2b_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
@@ -285,13 +303,15 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
                     event = OutputEvent(process_id=process_id, data=line, stream="stderr")
                     stderr_events.append(event)
 
-            result = await sandbox.commands.run(
-                command,
-                timeout=int(self.timeout),
-                on_stdout=on_stdout,
-                on_stderr=on_stderr,
-                envs=self.get_env(),
-            )
+            # Only pass timeout if specified, otherwise let command run indefinitely
+            run_kwargs: dict[str, Any] = {
+                "on_stdout": on_stdout,
+                "on_stderr": on_stderr,
+                "envs": self.get_env(),
+            }
+            if effective_timeout is not None:
+                run_kwargs["timeout"] = int(effective_timeout)
+            result = await sandbox.commands.run(command, **run_kwargs)
 
             for event in stdout_events:
                 yield event

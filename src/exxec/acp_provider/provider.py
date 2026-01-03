@@ -61,6 +61,7 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         language: Language = "python",
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize ACP execution environment.
 
@@ -72,12 +73,14 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             cwd: Working directory for the environment
             env_vars: Environment variables to set for all executions
             language: Programming language for code execution (python, javascript, typescript)
+            default_command_timeout: Default timeout for command execution in seconds
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
             cwd=cwd,
             env_vars=env_vars,
+            default_command_timeout=default_command_timeout,
         )
         self._fs = fs
         self._requests = requests
@@ -190,15 +193,25 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             cmd, args=args, output_byte_limit=1048576, env=self.env_vars or None
         )
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command using ACP terminal capabilities.
 
         Args:
             command: Terminal command to execute (supports shell features like pipes)
+            timeout: Optional timeout in seconds (wraps command with shell timeout)
 
         Returns:
             ExecutionResult with command output and metadata
         """
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Wrap command with shell timeout if specified
+        if effective_timeout is not None:
+            command = f"timeout {effective_timeout} {command}"
         start_time = time.perf_counter()
         try:
             # Pass command directly without splitting - ACP clients run it through
@@ -211,6 +224,18 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             exit_code = exit_result.exit_code or 0
             duration = time.perf_counter() - start_time
             output = output_response.output or ""
+            # Exit code 124 is timeout's exit code when command times out
+            if exit_code == 124:  # noqa: PLR2004
+                return ExecutionResult(
+                    result=None,
+                    stdout=output,
+                    stderr=None,
+                    success=False,
+                    exit_code=exit_code,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    duration=duration,
+                )
             return ExecutionResult(
                 result=output,
                 stdout=output,
@@ -223,15 +248,25 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events.
 
         Args:
             command: Terminal command to execute (supports shell features like pipes)
+            timeout: Optional timeout in seconds (wraps command with shell timeout)
 
         Yields:
             ExecutionEvent objects as they occur
         """
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Wrap command with shell timeout if specified
+        if effective_timeout is not None:
+            command = f"timeout {effective_timeout} {command}"
         start_time = time.perf_counter()
         terminal_id: str | None = None
         try:
@@ -247,7 +282,15 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
             if response.output:
                 yield OutputEvent(process_id=terminal_id, data=response.output, stream="combined")
             exit_code = exit_result.exit_code or 0
-            if exit_code == 0:
+            # Exit code 124 is timeout's exit code when command times out
+            if exit_code == 124:  # noqa: PLR2004
+                yield ProcessErrorEvent(
+                    process_id=terminal_id,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=exit_code,
+                )
+            elif exit_code == 0:
                 yield ProcessCompletedEvent(
                     process_id=terminal_id,
                     exit_code=exit_code,

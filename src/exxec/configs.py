@@ -119,7 +119,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return LocalExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            default_command_timeout=self.timeout,
             isolated=self.isolated,
             executable=self.executable,
             language=self.language,
@@ -164,7 +164,7 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             image=self.image,
-            timeout=self.timeout,
+            default_command_timeout=self.timeout,
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,

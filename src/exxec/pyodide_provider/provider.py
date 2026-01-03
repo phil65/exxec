@@ -73,6 +73,7 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Pyodide environment.
 
@@ -91,6 +92,7 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
             cwd: Working directory for the sandbox
             env_vars: Environment variables (limited support in WASM)
             inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution (limited in WASM)
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -98,6 +100,7 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.timeout = timeout
         self.startup_timeout = startup_timeout
@@ -339,8 +342,15 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a shell command (limited support in WASM).
+
+        Note: timeout parameter is accepted but not enforced in WASM environment.
 
         Note: True shell commands are not supported in Pyodide/WASM.
         This attempts to run the command via Python's subprocess module,
@@ -370,7 +380,12 @@ result.returncode
             exit_code=exit_code,
         )
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Stream a shell command (limited support in WASM)."""
         # Delegate to execute_command since streaming shell commands
         # is not really supported in Pyodide
@@ -379,7 +394,7 @@ result.returncode
         yield ProcessStartedEvent(process_id=process_id, command=command)
 
         try:
-            result = await self.execute_command(command)
+            result = await self.execute_command(command, timeout=timeout)
 
             if result.stdout:
                 yield OutputEvent(process_id=process_id, data=result.stdout, stream="stdout")

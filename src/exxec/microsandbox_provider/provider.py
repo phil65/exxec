@@ -42,6 +42,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Microsandbox environment.
 
@@ -59,6 +60,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions (via command prefix)
             inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -66,6 +68,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.server_url = server_url
         self.namespace = namespace
@@ -197,17 +200,39 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Microsandbox environment."""
         sandbox = self._ensure_initialized()
-        # Prepend environment variables to command
-        full_command = self._get_env_prefix() + command
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Prepend environment variables and wrap with timeout if set
+        env_prefix = self._get_env_prefix()
+        if effective_timeout is not None:
+            full_command = f"{env_prefix}timeout {effective_timeout} {command}"
+        else:
+            full_command = env_prefix + command
         cmd, args = parse_command(full_command)
         start_time = time.time()
         try:
             execution = await sandbox.command.run(cmd, args)
             stdout = await execution.output()
             stderr = await execution.error()
+            # Exit code 124 indicates timeout
+            if execution.exit_code == 124:  # noqa: PLR2004
+                return ExecutionResult(
+                    result=None,
+                    duration=time.time() - start_time,
+                    success=False,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=124,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
             success = execution.success
             return ExecutionResult(
                 result=stdout if success else None,
@@ -249,12 +274,17 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute terminal command and emit combined events (no real-time streaming)."""
         process_id = f"microsandbox_cmd_{id(self.sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            result = await self.execute_command(command)
+            result = await self.execute_command(command, timeout=timeout)
             if result.stdout:  # Emit output as single combined event
                 yield OutputEvent(process_id=process_id, data=result.stdout, stream="combined")
             if result.success:

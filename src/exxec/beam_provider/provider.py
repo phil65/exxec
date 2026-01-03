@@ -47,6 +47,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Beam environment.
 
@@ -56,11 +57,12 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
             cpu: CPU cores allocated to the container
             memory: Memory allocated to the container (MiB or string with units)
             keep_warm_seconds: Seconds to keep sandbox alive (-1 for no timeout)
-            timeout: Execution timeout in seconds
+            timeout: Sandbox lifetime timeout in seconds
             language: Programming language to use
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
             inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -68,6 +70,7 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.cpu = cpu
         self.memory = memory
@@ -162,14 +165,23 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Beam sandbox."""
         self.instance = self.validate_instance()
         cmd, args = parse_command(command)
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         try:
             process = self.instance.process.exec(cmd, *args, env=self.get_env())
-            exit_code = await asyncio.to_thread(process.wait)
+            exit_code = await asyncio.wait_for(
+                asyncio.to_thread(process.wait),
+                timeout=effective_timeout,
+            )
             output = "\n".join(line.rstrip("\n\r") for line in process.logs)
             success = exit_code == 0
             return ExecutionResult(
@@ -183,6 +195,17 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
                 stderr="",  # Beam combines stdout/stderr
             )
 
+        except TimeoutError:
+            return ExecutionResult(
+                result=None,
+                duration=time.time() - start_time,
+                success=False,
+                error=f"Command timed out after {effective_timeout} seconds",
+                error_type="TimeoutError",
+                exit_code=1,
+                stdout="",
+                stderr="",
+            )
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
@@ -222,9 +245,15 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Beam sandbox."""
         self.instance = self.validate_instance()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         cmd, args = parse_command(command)
         process_id: str | None = None
         try:
@@ -236,7 +265,10 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
                     process_id=process_id, data=line.rstrip("\n\r"), stream="combined"
                 )
 
-            exit_code = await asyncio.to_thread(process.wait)
+            exit_code = await asyncio.wait_for(
+                asyncio.to_thread(process.wait),
+                timeout=effective_timeout,
+            )
             if exit_code == 0:
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
             else:
@@ -247,6 +279,14 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
                     exit_code=exit_code,
                 )
 
+        except TimeoutError:
+            error_id = process_id or str(uuid.uuid4())[:8]
+            yield ProcessErrorEvent(
+                process_id=error_id,
+                error=f"Command timed out after {effective_timeout} seconds",
+                error_type="TimeoutError",
+                exit_code=1,
+            )
         except Exception as e:  # noqa: BLE001
             error_id = process_id or str(uuid.uuid4())[:8]
             yield ProcessErrorEvent.failed(e, process_id=error_id)

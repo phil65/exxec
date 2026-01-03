@@ -115,8 +115,14 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         """Execute code and return mock result."""
         return self._code_results.get(code, self._default_result)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute command and return mock result."""
+        _ = timeout  # Mock provider ignores timeout
         return self._command_results.get(command, self._default_result)
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
@@ -150,8 +156,14 @@ class MockExecutionEnvironment(ExecutionEnvironment):
                 duration=result.duration,
             )
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Stream mock command execution events."""
+        _ = timeout  # Mock provider ignores timeout
         # Check for exception simulation first
         if command in self._command_exceptions:
             raise self._command_exceptions[command]

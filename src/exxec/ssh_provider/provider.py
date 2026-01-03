@@ -37,7 +37,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         password: str | None = None,
         private_key_path: str | None = None,
         port: int = 22,
-        timeout: float = 60.0,
+        default_command_timeout: float | None = 60.0,
         language: Language = "python",
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
@@ -54,7 +54,8 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             lifespan_handler: lifespan handler during execution
             private_key_path: Path to SSH private key file
             port: SSH port
-            timeout: Execution timeout in seconds
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
             language: Programming language to use
             cwd: Remote working directory (auto-generated if None)
             env_vars: Environment variables to set for all executions
@@ -67,13 +68,13 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.host = host
         self.username = username
         self.password = password
         self.private_key_path = private_key_path
         self.port = port
-        self.timeout = timeout
         self.language = language
         self.ssh_kwargs = ssh_kwargs
 
@@ -282,10 +283,19 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def run_in_working_dir(self, cmd: str, timeout: bool = False) -> SSHCompletedProcess:
-        """Run a command in the working directory."""
-        if timeout:
-            cmd = f"cd {self._remote_work_dir} && timeout {self.timeout} {cmd}"
+    async def run_in_working_dir(
+        self,
+        cmd: str,
+        timeout: float | None = None,
+    ) -> SSHCompletedProcess:
+        """Run a command in the working directory.
+
+        Args:
+            cmd: Command to run
+            timeout: Optional timeout in seconds (None means no timeout)
+        """
+        if timeout is not None:
+            cmd = f"cd {self._remote_work_dir} && timeout {timeout} {cmd}"
         else:
             cmd = f"cd {self._remote_work_dir} && {cmd}"
         return await self.run(cmd)
@@ -301,7 +311,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             cmd = f"uv run {with_args} python {script_path}"
         else:
             cmd = f"uv run python {script_path}"
-        return await self.run_in_working_dir(cmd, timeout=True)
+        return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
     async def write_file(self, path: str, content: str) -> None:
         """Write content to a file on the remote server."""
@@ -312,7 +322,9 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         self._ensure_connected()
         script_path = f"{self._remote_work_dir}/script.js"
         await self.write_file(script_path, code)
-        return await self.run_in_working_dir(f"node {script_path}", timeout=True)
+        return await self.run_in_working_dir(
+            f"node {script_path}", timeout=self.default_command_timeout
+        )
 
     async def _execute_typescript(self, code: str) -> Any:
         """Execute TypeScript code using ts-node or similar."""
@@ -327,7 +339,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             # Compile and run
             cmd = f"npx tsc {script_path} && node script.js"
 
-        return await self.run_in_working_dir(cmd, timeout=True)
+        return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
     def _inject_tool_server(self, code: str) -> str:
         """Inject tool server URL into Python code if available."""
@@ -343,13 +355,19 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
 """
         return injection + code
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a shell command on the remote machine."""
         self._ensure_connected()
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
-            result = await self.run_in_working_dir(command, timeout=True)
+            result = await self.run_in_working_dir(command, timeout=effective_timeout)
             success = result.returncode == 0
             stderr = err.decode() if isinstance(err := result.stderr, bytes) else err
             stdout = out.decode() if isinstance(out := result.stdout, bytes) else out
@@ -407,13 +425,19 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute command and stream events over SSH."""
         connection = self._ensure_connected()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         process_id = f"ssh_cmd_{id(connection)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            cmd = f"cd {self._remote_work_dir} && {command}"
+            cmd = f"cd {self._remote_work_dir} && timeout {effective_timeout} {command}"
             async with connection.create_process(wrap_command(cmd)) as process:
                 async for line in process.stdout:
                     data = line.rstrip("\n\r")
@@ -422,7 +446,15 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
                     data = line.rstrip("\n\r")
                     yield OutputEvent(process_id=process_id, data=data, stream="stderr")
                 code = process.returncode or 0
-                if code == 0:
+                # Exit code 124 is timeout's exit code when command times out
+                if code == 124:  # noqa: PLR2004
+                    yield ProcessErrorEvent(
+                        process_id=process_id,
+                        error=f"Command timed out after {effective_timeout} seconds",
+                        error_type="TimeoutError",
+                        exit_code=code,
+                    )
+                elif code == 0:
                     yield ProcessCompletedEvent(process_id=process_id, exit_code=code)
                 else:
                     yield ProcessErrorEvent(

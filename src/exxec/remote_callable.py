@@ -271,7 +271,7 @@ if __name__ == "__main__":
         remote_create_person = create_remote_callable(
             create_person,
             DockerExecutionEnvironment,
-            timeout=60.0,
+            default_command_timeout=60.0,
         )
         person = await remote_create_person("Alice", 30, "alice@example.com")
         print(f"Result: {person!r}")

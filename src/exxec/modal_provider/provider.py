@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import anyenv
 
@@ -66,6 +66,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Modal sandbox environment.
 
@@ -86,6 +87,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             cwd: Working directory for the sandbox
             env_vars: Environment variables to set for all executions
             inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -93,6 +95,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
         self.app_name = app_name or "anyenv-execution"
         self.image = image
@@ -257,19 +260,23 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Modal sandbox."""
         sandbox = self._ensure_initialized()
         cmd, args = parse_command(command)
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
-            process = await sandbox.exec.aio(
-                cmd,
-                *args,
-                timeout=self.timeout,
-                env=self.get_env(),  # type: ignore[arg-type]
-            )
+            exec_kwargs: dict[str, Any] = {"env": self.get_env()}
+            if effective_timeout is not None:
+                exec_kwargs["timeout"] = int(effective_timeout)
+            process = await sandbox.exec.aio(cmd, *args, **exec_kwargs)
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -326,19 +333,23 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Modal sandbox."""
         sandbox = self._ensure_initialized()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         cmd, args = parse_command(command)
         process_id = f"modal_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            process = await sandbox.exec.aio(
-                cmd,
-                *args,
-                timeout=self.timeout,
-                env=self.get_env(),  # type: ignore[arg-type]
-            )
+            exec_kwargs: dict[str, Any] = {"env": self.get_env()}
+            if effective_timeout is not None:
+                exec_kwargs["timeout"] = int(effective_timeout)
+            process = await sandbox.exec.aio(cmd, *args, **exec_kwargs)
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
             async for line in process.stderr:

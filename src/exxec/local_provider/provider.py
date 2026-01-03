@@ -49,7 +49,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        timeout: float = 30.0,
+        default_command_timeout: float | None = 30.0,
         isolated: bool = False,
         executable: str | None = None,
         language: Language = "python",
@@ -63,7 +63,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         Args:
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of Python packages to install via pip / npm
-            timeout: Execution timeout in seconds
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
             isolated: If True, run code in subprocess; if False, run in same process
             executable: Executable to use for isolated mode (if None, auto-detect)
             language: Programming language to use (for isolated mode)
@@ -78,8 +79,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             cwd=cwd,
             env_vars=env_vars,
             inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
         )
-        self.timeout = timeout
         self.isolated = isolated
         self.language: Language = language
         self.executable = executable or (find_executable(language) if isolated else None)
@@ -98,7 +99,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             cmd = f"pip install {deps_str}"
             try:
                 process = await create_shell_process(cmd, stdout="pipe", stderr="pipe")
-                await asyncio.wait_for(process.communicate(), timeout=self.timeout)
+                await asyncio.wait_for(process.communicate(), timeout=self.default_command_timeout)
             except Exception:  # noqa: BLE001
                 # Log warning but don't fail - code might still work
                 pass
@@ -165,11 +166,11 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                             loop.close()
 
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(run_in_thread), timeout=self.timeout
+                        asyncio.to_thread(run_in_thread), timeout=self.default_command_timeout
                     )
                 else:
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(main_func), timeout=self.timeout
+                        asyncio.to_thread(main_func), timeout=self.default_command_timeout
                     )
             else:
                 result = namespace.get("_result")
@@ -191,7 +192,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             self.process = process
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(wrapped_code.encode()),
-                timeout=self.timeout,
+                timeout=self.default_command_timeout,
             )
             stdout = stdout_data.decode() if stdout_data else ""
             stderr = stderr_data.decode() if stderr_data else ""
@@ -267,17 +268,23 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         """
         return command
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a shell command and return result with metadata."""
         start_time = time.time()
         command = self.wrap_command(command)
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
             process = await create_shell_process(
                 command, stdout="pipe", stderr="pipe", env=self.get_env()
             )
             stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(), timeout=self.timeout
+                process.communicate(), timeout=effective_timeout
             )
 
             duration = time.time() - start_time
@@ -336,7 +343,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                 while True:
                     try:
                         line = await asyncio.wait_for(
-                            process.stdout.readline(), timeout=self.timeout
+                            process.stdout.readline(), timeout=self.default_command_timeout
                         )
                         if not line:
                             break
@@ -347,7 +354,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                         await process.wait()
                         yield ProcessErrorEvent(
                             process_id=process_id,
-                            error=f"Process timed out after {self.timeout} seconds",
+                            error=f"Process timed out after {self.default_command_timeout} seconds",
                             error_type="TimeoutError",
                             exit_code=1,
                         )
@@ -396,12 +403,12 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                                 main_func = namespace["main"]
                                 if inspect.iscoroutinefunction(main_func):
                                     result = await asyncio.wait_for(
-                                        main_func(), timeout=self.timeout
+                                        main_func(), timeout=self.default_command_timeout
                                     )
                                 else:
                                     result = await asyncio.wait_for(
                                         asyncio.to_thread(main_func),
-                                        timeout=self.timeout,
+                                        timeout=self.default_command_timeout,
                                     )
 
                                 if result is not None:
@@ -450,9 +457,15 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a shell command and stream events."""
         command = self.wrap_command(command)
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         process_id = f"local_cmd_{id(self)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
@@ -463,7 +476,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                 while True:
                     try:
                         line = await asyncio.wait_for(
-                            process.stdout.readline(), timeout=self.timeout
+                            process.stdout.readline(), timeout=effective_timeout
                         )
                         if not line:
                             break
@@ -477,7 +490,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                         await process.wait()
                         yield ProcessErrorEvent(
                             process_id=process_id,
-                            error=f"Command timed out after {self.timeout} seconds",
+                            error=f"Command timed out after {effective_timeout} seconds",
                             error_type="TimeoutError",
                             exit_code=1,
                         )

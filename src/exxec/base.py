@@ -33,6 +33,7 @@ class ExecutionEnvironment(ABC):
         cwd: str | None = None,
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
+        default_command_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize execution environment with optional lifespan handler.
@@ -43,6 +44,9 @@ class ExecutionEnvironment(ABC):
             cwd: Working directory for the environment (None means use default/auto)
             env_vars: Environment variables to set for all executions
             inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
+                This is separate from sandbox/instance lifetime timeouts.
             **kwargs: Additional keyword arguments for specific providers
         """
         self.lifespan_handler = lifespan_handler
@@ -51,6 +55,7 @@ class ExecutionEnvironment(ABC):
         self.cwd = cwd
         self.env_vars = env_vars or {}
         self.inherit_env = inherit_env
+        self.default_command_timeout = default_command_timeout
         self._process_manager: ProcessManagerProtocol | None = None
         self._os_type: OSType | None = None
 
@@ -196,11 +201,18 @@ class ExecutionEnvironment(ABC):
         ...
 
     @abstractmethod
-    def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events (required).
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Yields:
             ExecutionEvent objects as they occur
@@ -225,31 +237,45 @@ class ExecutionEnvironment(ABC):
                 yield event.data
 
     @abstractmethod
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command and return result with metadata.
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Returns:
             ExecutionResult with command output and metadata
         """
         ...
 
-    async def execute_command_stream(self, command: str) -> AsyncIterator[str]:
+    async def execute_command_stream(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[str]:
         """Execute a terminal command and stream output line by line.
 
         Default implementation delegates to stream_command() and filters OutputEvents.
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Yields:
             Lines of output as they are produced
         """
         from exxec.events import OutputEvent
 
-        async for event in self.stream_command(command):
+        async for event in self.stream_command(command, timeout=timeout):
             if isinstance(event, OutputEvent):
                 yield event.data
 
