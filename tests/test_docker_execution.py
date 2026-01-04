@@ -21,7 +21,7 @@ async def main():
     return "Hello from Docker!"
 """
 
-    async with DockerExecutionEnvironment(timeout=30.0) as env:
+    async with DockerExecutionEnvironment(default_command_timeout=30.0) as env:
         result = await env.execute(code)
 
     assert result.success is True

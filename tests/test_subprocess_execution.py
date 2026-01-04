@@ -73,7 +73,7 @@ async def main():
     return "Should not reach here"
 """
 
-    async with LocalExecutionEnvironment(isolated=False, timeout=0.5) as env:
+    async with LocalExecutionEnvironment(isolated=False, default_command_timeout=0.5) as env:
         result = await env.execute(code)
 
     assert result.success is False
@@ -90,7 +90,7 @@ async def main():
     return "Should not reach here"
 """
 
-    async with LocalExecutionEnvironment(isolated=True, timeout=0.5) as env:
+    async with LocalExecutionEnvironment(isolated=True, default_command_timeout=0.5) as env:
         result = await env.execute(code)
 
     assert result.success is False
