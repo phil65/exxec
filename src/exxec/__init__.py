@@ -31,7 +31,7 @@ from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
 # from exxec.server import fastapi_tool_server
-from exxec.configs import ExecutionEnvironmentConfig
+from exxec_config import ExecutionEnvironmentConfig
 from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
 from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 

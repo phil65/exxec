@@ -294,6 +294,10 @@ default-groups = ["dev", "lint", "docs"]
 override-dependencies = ["websockets>=15.0.0"]
 
 [tool.uv.build-backend]
+module-name = [
+  "exxec",
+  "exxec_config",
+]
 wheel-exclude = [
   ".mypy_cache/**",
   "__pycache__/**",

@@ -7,8 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import ConfigDict, Field, SecretStr
 from schemez import Schema
 
-from exxec.models import Language
-from exxec.srt_provider.config import SandboxConfig
+from exxec_config.srt_sandbox_config import SandboxConfig
 
 
 if TYPE_CHECKING:
@@ -28,6 +27,8 @@ if TYPE_CHECKING:
     from exxec.ssh_provider import SshExecutionEnvironment
     from exxec.vercel_provider import VercelExecutionEnvironment
 
+
+Language = Literal["python", "javascript", "typescript"]
 
 VercelRuntime = Literal[
     "node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"
