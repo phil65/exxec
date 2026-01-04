@@ -10,6 +10,21 @@ from schemez import Schema
 from exxec_config.srt_sandbox_config import SandboxConfig
 
 
+ExecutionEnvironmentStr = Literal[
+    "local",
+    "docker",
+    "ssh",
+    "daytona",
+    "e2b",
+    "beam",
+    "vercel",
+    "microsandbox",
+    "modal",
+    "srt",
+    "pyodide",
+]
+
+
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 

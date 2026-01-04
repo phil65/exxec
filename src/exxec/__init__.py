@@ -31,7 +31,7 @@ from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
 # from exxec.server import fastapi_tool_server
-from exxec_config import ExecutionEnvironmentConfig
+from exxec_config import ExecutionEnvironmentConfig, ExecutionEnvironmentStr
 from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
 from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
@@ -41,19 +41,7 @@ if TYPE_CHECKING:
     from exxec.models import Language
 
 
-ExecutionEnvironmentStr = Literal[
-    "local",
-    "docker",
-    "ssh",
-    "daytona",
-    "e2b",
-    "beam",
-    "vercel",
-    "microsandbox",
-    "modal",
-    "srt",
-    "pyodide",
-]
+# ExecutionEnvironmentStr is now imported from exxec_config
 
 
 @overload
