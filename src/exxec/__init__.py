@@ -31,11 +31,12 @@ from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
 # from exxec.server import fastapi_tool_server
-from exxec_config import ExecutionEnvironmentConfig, ExecutionEnvironmentStr
+from exxec_config import ExecutionEnvironmentConfig
 from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
 from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
 if TYPE_CHECKING:
+    from exxec_config import ExecutionEnvironmentStr
     from contextlib import AbstractAsyncContextManager
 
     from exxec.models import Language
