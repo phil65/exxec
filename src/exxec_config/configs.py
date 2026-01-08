@@ -63,13 +63,13 @@ class BaseExecutionEnvironmentConfig(Schema):
     )
     """List of packages to install (pip for Python, npm for JS/TS)."""
 
-    timeout: float = Field(
-        default=60.0,
+    default_command_timeout: float | None = Field(
+        default=None,
         gt=0.0,
-        title="Execution Timeout",
-        examples=[120.0, 300.0],
+        title="Default Command Timeout",
+        examples=[30.0, 60.0, 120.0],
     )
-    """Execution timeout in seconds."""
+    """Default timeout for individual command execution in seconds. None means no timeout."""
 
     cwd: str | None = Field(
         default=None,
@@ -135,7 +135,7 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return LocalExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            default_command_timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
             isolated=self.isolated,
             executable=self.executable,
             language=self.language,
@@ -180,7 +180,7 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             image=self.image,
-            default_command_timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
@@ -203,6 +203,14 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """E2B template to use."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     keep_alive: bool = Field(default=False, title="Keep Alive")
     """Keep sandbox running after execution."""
 
@@ -223,7 +231,8 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             template=self.template,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             keep_alive=self.keep_alive,
             language=self.language,
             cwd=self.cwd,
@@ -257,6 +266,14 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     keep_warm_seconds: int = Field(default=600, title="Keep Warm Duration", examples=[300, 600, -1])
     """Seconds to keep sandbox alive, -1 for no timeout."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     language: Language = Field(
         default="python",
         title="Programming Language",
@@ -276,7 +293,8 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             cpu=self.cpu,
             memory=self.memory,
             keep_warm_seconds=self.keep_warm_seconds,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
@@ -319,6 +337,14 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     keep_alive: bool = Field(default=False, title="Keep Alive")
     """Keep sandbox running after execution."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> DaytonaExecutionEnvironment:
@@ -333,7 +359,8 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             api_key=api_key_str,
             target=self.target,
             image=self.image,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             keep_alive=self.keep_alive,
             cwd=self.cwd,
             env_vars=self.env_vars,
@@ -369,6 +396,14 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     """Sandbox restrictions configuration."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> SRTExecutionEnvironment:
@@ -379,7 +414,8 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             sandbox_config=self.sandbox,
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             executable=self.executable,
             language=self.language,
             cwd=self.cwd,
@@ -433,6 +469,14 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Custom Docker image (uses default for language if None)."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> MicrosandboxExecutionEnvironment:
@@ -448,7 +492,8 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             api_key=api_key_str,
             memory=self.memory,
             cpus=self.cpus,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             image=self.image,
             cwd=self.cwd,
@@ -555,6 +600,14 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Programming language to use."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Connection Timeout",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """SSH connection timeout in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> SshExecutionEnvironment:
@@ -570,7 +623,8 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             password=password_str,
             private_key_path=self.private_key_path,
             port=self.port,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             cwd=self.cwd,
             env_vars=self.env_vars,
@@ -759,6 +813,14 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Path to deno executable (auto-detected if None)."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> PyodideExecutionEnvironment:
@@ -768,7 +830,8 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return PyodideExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             startup_timeout=self.startup_timeout,
             allow_net=self.allow_net,
             allow_read=self.allow_read,
