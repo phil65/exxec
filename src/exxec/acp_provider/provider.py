@@ -211,7 +211,10 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
         # Wrap command with shell timeout if specified
         if effective_timeout is not None:
-            command = f"timeout {effective_timeout} {command}"
+            # Use sh -c to ensure the entire command runs in a shell
+            # (timeout expects an executable, not shell builtins like cd)
+            quoted = shlex.quote(command)
+            command = f"timeout {effective_timeout} sh -c {quoted}"
         start_time = time.perf_counter()
         try:
             # Pass command directly without splitting - ACP clients run it through
@@ -266,7 +269,10 @@ class ACPExecutionEnvironment(ExecutionEnvironment):
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
         # Wrap command with shell timeout if specified
         if effective_timeout is not None:
-            command = f"timeout {effective_timeout} {command}"
+            # Use sh -c to ensure the entire command runs in a shell
+            # (timeout expects an executable, not shell builtins like cd)
+            quoted = shlex.quote(command)
+            command = f"timeout {effective_timeout} sh -c {quoted}"
         start_time = time.perf_counter()
         terminal_id: str | None = None
         try:
