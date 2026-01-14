@@ -112,6 +112,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         self.sandbox: Sandbox | None = None
         # Modal sandboxes run Linux
         self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: ModalPtyManager | None = None
 
     def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.
@@ -208,10 +210,12 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> ModalPtyManager:
         """Return a ModalPtyManager for interactive terminal sessions."""
-        from exxec.modal_provider.pty_manager import ModalPtyManager
+        if self._pty_manager is None:
+            from exxec.modal_provider.pty_manager import ModalPtyManager
 
-        sandbox = self._ensure_initialized()
-        return ModalPtyManager(sandbox)
+            sandbox = self._ensure_initialized()
+            self._pty_manager = ModalPtyManager(sandbox)
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Modal sandbox."""

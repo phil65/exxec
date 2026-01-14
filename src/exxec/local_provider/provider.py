@@ -88,6 +88,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.root_path = root_path
         # Local provider knows OS statically
         self._os_type = platform.system()  # type: ignore[assignment]
+        # Cache PTY manager instance
+        self._pty_manager: LocalPtyManager | None = None
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class
@@ -134,9 +136,11 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> LocalPtyManager:
         """Return a LocalPtyManager for interactive terminal sessions."""
-        from exxec.local_provider.pty_manager import LocalPtyManager
+        if self._pty_manager is None:
+            from exxec.local_provider.pty_manager import LocalPtyManager
 
-        return LocalPtyManager(cwd=self.cwd)
+            self._pty_manager = LocalPtyManager(cwd=self.cwd)
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in same process or isolated subprocess."""

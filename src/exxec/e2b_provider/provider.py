@@ -97,6 +97,8 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         self.sandbox: AsyncSandbox | None = None
         # E2B sandboxes run Linux
         self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: E2BPtyManager | None = None
 
     def _ensure_initialized(self) -> AsyncSandbox:
         """Ensure async context."""
@@ -147,10 +149,12 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> E2BPtyManager:
         """Return an E2BPtyManager for interactive terminal sessions."""
-        from exxec.e2b_provider.pty_manager import E2BPtyManager
+        if self._pty_manager is None:
+            from exxec.e2b_provider.pty_manager import E2BPtyManager
 
-        sandbox = self._ensure_initialized()
-        return E2BPtyManager(sandbox)
+            sandbox = self._ensure_initialized()
+            self._pty_manager = E2BPtyManager(sandbox)
+        return self._pty_manager
 
     async def get_domain(self, port: int) -> str:
         """Return the domain name for the sandbox."""

@@ -81,6 +81,8 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         self._sandbox: AsyncSandbox | None = None
         # Daytona sandboxes run Linux containers
         self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: DaytonaPtyManager | None = None
 
     @property
     def sandbox(self) -> AsyncSandbox:
@@ -134,9 +136,11 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> DaytonaPtyManager:
         """Return a DaytonaPtyManager for interactive terminal sessions."""
-        from exxec.daytona_provider.pty_manager import DaytonaPtyManager
+        if self._pty_manager is None:
+            from exxec.daytona_provider.pty_manager import DaytonaPtyManager
 
-        return DaytonaPtyManager(self.sandbox)
+            self._pty_manager = DaytonaPtyManager(self.sandbox)
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Daytona sandbox."""

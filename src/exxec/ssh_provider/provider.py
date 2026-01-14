@@ -81,6 +81,8 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         self._connection_cm: _ACMWrapper[SSHClientConnection] | None = None
         self.connection: SSHClientConnection | None = None
         self._remote_work_dir: str | None = None
+        # Cache PTY manager instance
+        self._pty_manager: SshPtyManager | None = None
         self._fs: WrapperFileSystem | None = None
 
     def _ensure_connected(self) -> SSHClientConnection:
@@ -207,10 +209,12 @@ class SshExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> SshPtyManager:
         """Return a SshPtyManager for interactive terminal sessions."""
-        from exxec.ssh_provider.pty_manager import SshPtyManager
+        if self._pty_manager is None:
+            from exxec.ssh_provider.pty_manager import SshPtyManager
 
-        connection = self._ensure_connected()
-        return SshPtyManager(connection)
+            connection = self._ensure_connected()
+            self._pty_manager = SshPtyManager(connection)
+        return self._pty_manager
 
     async def _verify_tools(self) -> None:
         """Verify that required tools are available on the remote machine."""

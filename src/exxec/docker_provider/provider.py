@@ -69,6 +69,8 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         self.host_workdir: str | None = None
         # Docker containers are always Linux
         self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: DockerPtyManager | None = None
 
     async def __aenter__(self) -> Self:
         from testcontainers.core.container import DockerContainer
@@ -133,12 +135,14 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> DockerPtyManager:
         """Return a DockerPtyManager for interactive terminal sessions."""
-        from exxec.docker_provider.pty_manager import DockerPtyManager
+        if self._pty_manager is None:
+            from exxec.docker_provider.pty_manager import DockerPtyManager
 
-        if not self.container:
-            msg = "Docker environment not started"
-            raise RuntimeError(msg)
-        return DockerPtyManager(self.container.get_wrapped_container())
+            if not self.container:
+                msg = "Docker environment not started"
+                raise RuntimeError(msg)
+            self._pty_manager = DockerPtyManager(self.container.get_wrapped_container())
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in Docker container."""

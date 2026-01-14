@@ -81,6 +81,8 @@ class MockExecutionEnvironment(ExecutionEnvironment):
         self._os_type = "Linux"
         self._deterministic_ids = deterministic_ids
         self._process_counter = 0
+        # Cache PTY manager instance
+        self._pty_manager: MockPtyManager | None = None
 
     @property
     def process_manager(self) -> MockProcessManager:
@@ -107,9 +109,11 @@ class MockExecutionEnvironment(ExecutionEnvironment):
 
     def get_pty_manager(self) -> MockPtyManager:
         """Return a MockPtyManager for testing interactive terminal sessions."""
-        from exxec.mock_provider.pty_manager import MockPtyManager
+        if self._pty_manager is None:
+            from exxec.mock_provider.pty_manager import MockPtyManager
 
-        return MockPtyManager()
+            self._pty_manager = MockPtyManager()
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code and return mock result."""
