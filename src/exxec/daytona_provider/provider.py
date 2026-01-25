@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from daytona._async.sandbox import AsyncSandbox  # type: ignore[import-untyped]
+    from daytona._async.sandbox import AsyncSandbox
     from upathtools.filesystems import DaytonaFS
 
     from exxec.daytona_provider.pty_manager import DaytonaPtyManager
@@ -62,7 +62,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             inherit_env: If True, inherit environment variables from os.environ
             default_command_timeout: Default timeout for command execution in seconds
         """
-        from daytona import AsyncDaytona, DaytonaConfig  # type: ignore[import-untyped]
+        from daytona import AsyncDaytona, DaytonaConfig
 
         super().__init__(
             lifespan_handler=lifespan_handler,
@@ -93,7 +93,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
     async def __aenter__(self) -> Self:
         """Setup Daytona client and create sandbox."""
         await super().__aenter__()
-        from daytona.common.daytona import (  # type: ignore[import-untyped]
+        from daytona.common.daytona import (
             CreateSandboxFromImageParams,
         )
 

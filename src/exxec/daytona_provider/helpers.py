@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, assert_never
 
 
 if TYPE_CHECKING:
-    from daytona.common.daytona import CodeLanguage  # type: ignore[import-untyped]
+    from daytona.common.daytona import CodeLanguage
 
     from exxec.parse_output import Language
 

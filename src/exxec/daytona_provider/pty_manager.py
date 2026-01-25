@@ -17,7 +17,7 @@ from exxec.pty_manager import BasePtyManager, PtyInfo, PtySize
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from daytona._async.sandbox import AsyncSandbox  # type: ignore[import-untyped]
+    from daytona._async.sandbox import AsyncSandbox
 
 
 @dataclass
@@ -78,7 +78,7 @@ class DaytonaPtyManager(BasePtyManager):
         Returns:
             PtyInfo with session details
         """
-        from daytona.common.pty import PtySize as DaytonaPtySize  # type: ignore[import-untyped]
+        from daytona.common.pty import PtySize as DaytonaPtySize
 
         size = size or PtySize()
         command = command or "/bin/bash"

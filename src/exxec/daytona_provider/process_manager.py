@@ -18,7 +18,7 @@ from exxec.log import get_logger
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from daytona._async.sandbox import AsyncSandbox  # type: ignore[import-untyped]
+    from daytona._async.sandbox import AsyncSandbox
 
 
 logger = get_logger(__name__)
@@ -81,7 +81,7 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
 
         try:
             await self.sandbox.process.create_session(session_id)
-            from daytona.common.process import SessionExecuteRequest  # type: ignore[import-untyped]
+            from daytona.common.process import SessionExecuteRequest
 
             request = SessionExecuteRequest(command=full_command, runAsync=True)  # ty: ignore[unknown-argument]
             response = await self.sandbox.process.execute_session_command(session_id, request)
