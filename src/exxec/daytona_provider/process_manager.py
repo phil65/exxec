@@ -108,11 +108,14 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
             return
         try:
 
-            def on_logs(chunk: str) -> None:
+            def on_stdout(chunk: str) -> None:
+                terminal.add_output(chunk)
+
+            def on_stderr(chunk: str) -> None:
                 terminal.add_output(chunk)
 
             await self.sandbox.process.get_session_command_logs_async(
-                terminal.session_id, terminal.command_id, on_logs
+                terminal.session_id, terminal.command_id, on_stdout, on_stderr
             )
             command_info = await self.sandbox.process.get_session_command(
                 terminal.session_id, terminal.command_id

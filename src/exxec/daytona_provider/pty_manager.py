@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from daytona._async.sandbox import AsyncSandbox
+    from daytona.handle.async_pty_handle import AsyncPtyHandle
 
 
 @dataclass
@@ -25,11 +26,10 @@ class DaytonaPtySession:
     """Tracks a Daytona PTY session."""
 
     info: PtyInfo
-    handle: object  # Daytona PTY handle
+    handle: AsyncPtyHandle
     sandbox: AsyncSandbox
     _output_buffer: list[bytes] = field(default_factory=list)
     _output_event: asyncio.Event = field(default_factory=asyncio.Event)
-    _reader_task: asyncio.Task[None] | None = None
 
 
 class DaytonaPtyManager(BasePtyManager):
@@ -38,13 +38,8 @@ class DaytonaPtyManager(BasePtyManager):
     Uses Daytona's process.create_pty_session API for interactive
     terminal sessions with full resize support.
 
-    Key Daytona API features used:
-        - sandbox.process.create_pty_session(id, pty_size)
-        - handle.send_input(data)
-        - handle.resize(PtySize)
-        - handle.kill()
-        - handle.wait()
-        - Iteration over handle for output streaming
+    The on_data callback is used for streaming output, eliminating
+    the need for background reader tasks.
     """
 
     def __init__(self, sandbox: AsyncSandbox) -> None:
@@ -69,11 +64,10 @@ class DaytonaPtyManager(BasePtyManager):
 
         Args:
             size: Initial terminal size (defaults to 24x80)
-            command: Not directly used - Daytona creates a shell session.
-                     Send commands via send_input after creation.
-            args: Not used for Daytona PTY
-            cwd: Working directory - change via cd command after session start
-            env: Not directly supported - set via export commands
+            command: Command to run after shell starts (sent via stdin)
+            args: Arguments for the command
+            cwd: Working directory for the PTY session
+            env: Environment variables for the PTY session
 
         Returns:
             PtyInfo with session details
@@ -90,12 +84,6 @@ class DaytonaPtyManager(BasePtyManager):
         # Create Daytona PtySize object
         daytona_size = DaytonaPtySize(cols=size.cols, rows=size.rows)
 
-        # Create PTY session using Daytona API
-        handle = await self._sandbox.process.create_pty_session(  # pyright: ignore[reportAttributeAccessIssue]
-            id=pty_id,
-            pty_size=daytona_size,
-        )
-
         # Daytona doesn't expose PID directly
         info = PtyInfo(
             id=pty_id,
@@ -110,6 +98,20 @@ class DaytonaPtyManager(BasePtyManager):
         output_buffer: list[bytes] = []
         output_event = asyncio.Event()
 
+        # Callback to handle PTY output - called by Daytona when data arrives
+        def on_data(data: bytes) -> None:
+            output_buffer.append(data)
+            output_event.set()
+
+        # Create PTY session using Daytona API with callback
+        handle = await self._sandbox.process.create_pty_session(
+            id=pty_id,
+            on_data=on_data,
+            cwd=cwd,
+            envs=env,
+            pty_size=daytona_size,
+        )
+
         session = DaytonaPtySession(
             info=info,
             handle=handle,
@@ -120,55 +122,12 @@ class DaytonaPtyManager(BasePtyManager):
         self._sessions[pty_id] = info
         self._daytona_sessions[pty_id] = session
 
-        # Start background reader task
-        session._reader_task = asyncio.create_task(self._read_output(session))
-
-        # If cwd specified, send cd command
-        if cwd:
-            await self.write(pty_id, f"cd {cwd}\n".encode())
-
         # If command specified (not default shell), send it
         if command and command != "/bin/bash":
             full_cmd = f"{command} {' '.join(args)}\n" if args else f"{command}\n"
             await self.write(pty_id, full_cmd.encode())
 
         return info
-
-    async def _read_output(self, session: DaytonaPtySession) -> None:
-        """Background task to read from Daytona PTY handle."""
-        loop = asyncio.get_event_loop()
-
-        try:
-            # Daytona handle supports iteration for output
-            # Run in executor since it may block
-            def read_sync() -> bytes | None:
-                try:
-                    for data in session.handle:  # type: ignore[attr-defined]
-                        return data  # type: ignore[no-any-return]
-                except StopIteration:
-                    return None
-                except Exception:  # noqa: BLE001
-                    return None
-                return None
-
-            while session.info.status == "running":
-                data = await loop.run_in_executor(None, read_sync)
-                if data:
-                    session._output_buffer.append(data)
-                    session._output_event.set()
-                else:
-                    # End of stream
-                    break
-        except Exception:  # noqa: BLE001
-            pass
-        finally:
-            session.info.status = "exited"
-            # Try to get exit code
-            try:
-                result = await loop.run_in_executor(None, session.handle.wait)  # type: ignore[attr-defined]
-                session.info.exit_code = result.exit_code
-            except Exception:  # noqa: BLE001
-                pass
 
     async def resize(self, pty_id: str, size: PtySize) -> None:
         """Resize a PTY session.
@@ -187,10 +146,8 @@ class DaytonaPtyManager(BasePtyManager):
             msg = f"PTY session {pty_id} not found"
             raise KeyError(msg)
 
-        # Resize using Daytona API
-        loop = asyncio.get_event_loop()
         daytona_size = DaytonaPtySize(cols=size.cols, rows=size.rows)
-        await loop.run_in_executor(None, session.handle.resize, daytona_size)  # type: ignore[attr-defined]
+        await session.handle.resize(daytona_size)
         session.info.size = size
 
     async def write(self, pty_id: str, data: bytes) -> None:
@@ -210,8 +167,7 @@ class DaytonaPtyManager(BasePtyManager):
 
         # Daytona send_input expects string
         text = data.decode() if isinstance(data, bytes) else data
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, session.handle.send_input, text)  # type: ignore[attr-defined]
+        await session.handle.send_input(text)
 
     async def read(self, pty_id: str, size: int = 4096) -> bytes:
         """Read data from a PTY's output buffer.
@@ -292,17 +248,13 @@ class DaytonaPtyManager(BasePtyManager):
             return False
 
         try:
-            # Cancel reader task
-            if session._reader_task:
-                session._reader_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await session._reader_task
-
-            # Kill using Daytona API
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, session.handle.kill)  # type: ignore[attr-defined]
-
+            await session.handle.kill()
             session.info.status = "exited"
+
+            # Try to get exit code
+            with contextlib.suppress(Exception):
+                result = await session.handle.wait()
+                session.info.exit_code = result.exit_code
         except Exception:  # noqa: BLE001
             pass
 
