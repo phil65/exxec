@@ -47,7 +47,7 @@ Source = "https://github.com/phil65/exxec"
 [project.optional-dependencies]
 beam = ["beam-client>=0.2.187"]
 daytona = ["daytona; python_version < '3.14'"]
-docker = ["testcontainers", "morefs"]
+docker = ["testcontainers"]
 e2b = ["e2b-code-interpreter"]
 mcp = ["fastmcp", "mcp-run-python"]
 microsandbox = ["microsandbox"]
@@ -289,7 +289,6 @@ python-platform = "all"
 
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]
-
 # Override to resolve beam-client (<14) vs daytona (>=15) websockets conflict
 override-dependencies = ["websockets>=15.0.0"]
 
