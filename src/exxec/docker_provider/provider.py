@@ -126,7 +126,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
     def get_fs(self) -> DirFileSystem:
         """Return a DirFileSystem instance for the shared host directory."""
         from fsspec.implementations.dirfs import DirFileSystem
-        from morefs.asyn_local import AsyncLocalFileSystem
+        from upathtools.filesystems import AsyncLocalFileSystem
 
         if not self.host_workdir:
             msg = "Docker environment not started"

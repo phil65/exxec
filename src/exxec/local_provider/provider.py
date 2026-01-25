@@ -127,7 +127,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
     def get_fs(self) -> AsyncFileSystem:
         """Return an AsyncLocalFileSystem for the current working directory."""
         from fsspec.implementations.dirfs import DirFileSystem  # type: ignore[import-untyped]
-        from morefs.asyn_local import AsyncLocalFileSystem
+        from upathtools.filesystems import AsyncLocalFileSystem
 
         fs = AsyncLocalFileSystem()
         if self.root_path:
