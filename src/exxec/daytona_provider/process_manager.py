@@ -63,6 +63,8 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         output_limit: int | None = None,
     ) -> str:
         """Create a new terminal session using Daytona's session management."""
+        from daytona.common.process import SessionExecuteRequest
+
         terminal_id = f"daytona_term_{uuid.uuid4().hex[:8]}"
         args = args or []
         full_command = f"{command} {' '.join(args)}" if args else command
@@ -78,14 +80,10 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         )
 
         self._terminals[terminal_id] = terminal
-
         try:
             await self.sandbox.process.create_session(session_id)
-            from daytona.common.process import SessionExecuteRequest
-
-            request = SessionExecuteRequest(command=full_command, runAsync=True)  # ty: ignore[unknown-argument]
+            request = SessionExecuteRequest(command=full_command, run_async=True)
             response = await self.sandbox.process.execute_session_command(session_id, request)
-
             terminal.set_command_id(str(response.cmd_id))
             asyncio.create_task(self._collect_output(terminal))  # noqa: RUF006
             msg = "Created Daytona terminal %s (session %s, command %s): %s"
@@ -145,7 +143,6 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         output = terminal.get_output()
         terminal.is_running()
         exit_code = terminal.get_exit_code()
-
         return ProcessOutput(stdout=output, stderr="", combined=output, exit_code=exit_code)
 
     def get_terminal(self, terminal_id: str) -> DaytonaTerminal:
@@ -258,14 +255,11 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         terminal_id = f"daytona_conn_{uuid.uuid4().hex[:8]}"
 
         try:
-            # Get session info
             session = await self.sandbox.process.get_session(session_id)
-
             # Create terminal for the existing session
             # Use the last command if available
             last_command = session.commands[-1] if session.commands else None
             command_text = last_command.command if last_command else "unknown"
-
             terminal = DaytonaTerminal(
                 terminal_id=terminal_id,
                 command=command_text,
@@ -280,7 +274,6 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
                     terminal.set_exit_code(int(last_command.exit_code))
 
             self._terminals[terminal_id] = terminal
-
             # Start collecting output if command is still running
             if terminal.is_running():
                 asyncio.create_task(self._collect_output(terminal))  # noqa: RUF006
@@ -298,20 +291,18 @@ class DaytonaTerminalManager(ProcessManagerProtocol):
         self, terminal_id: str, command: str, run_async: bool = True
     ) -> str:
         """Execute a new command in an existing terminal session."""
-        terminal = self.get_terminal(terminal_id)
-        try:
-            from daytona.common.process import SessionExecuteRequest
+        from daytona.common.process import SessionExecuteRequest
 
-            request = SessionExecuteRequest(command=command, runAsync=run_async)  # ty: ignore[unknown-argument]
+        terminal = self.get_terminal(terminal_id)
+        request = SessionExecuteRequest(command=command, run_async=run_async)
+        try:
             response = await self.sandbox.process.execute_session_command(
                 terminal.session_id, request
             )
-
             # Update terminal with new command info
             terminal.set_command_id(str(response.cmd_id))
             terminal._completed = False
             terminal._exit_code = None
-
             # Start collecting output for the new command
             if run_async:
                 asyncio.create_task(self._collect_output(terminal))  # noqa: RUF006
