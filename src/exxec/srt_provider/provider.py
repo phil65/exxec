@@ -75,7 +75,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         self._settings_file = self._create_settings_file()
         atexit.register(self._cleanup_settings_file)
 
-    def get_fs(self) -> SRTFS:  # ty: ignore[invalid-method-override]
+    def get_fs(self) -> SRTFS:
         """Get sandboxed filesystem."""
         from upathtools.filesystems.sandbox_filesystems import SRTFS
 

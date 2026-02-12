@@ -306,12 +306,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             script_path = get_script_path(self.language)
             with await sandbox.open.aio(script_path, "w") as f:
                 await f.write.aio(script_content)
-            exec_command = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(
-                *exec_command,
-                timeout=self.timeout,
-                env=self.get_env(),  # type: ignore[arg-type]
-            )
+            exec_cmd = _get_execution_command(self.language, script_path)
+            process = await sandbox.exec.aio(*exec_cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
 
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
