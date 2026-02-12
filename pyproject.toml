@@ -287,6 +287,10 @@ preview = true
 python-version = "3.13"
 python-platform = "all"
 
+[tool.ty.rules]
+unresolved-import = "ignore"
+unused-type-ignore-comment = "ignore"
+
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]
 # Override to resolve beam-client (<14) vs daytona (>=15) websockets conflict
