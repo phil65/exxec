@@ -38,7 +38,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         *,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        timeout: float = 30.0,
+        default_command_timeout: float | None = None,
         executable: str | None = None,
         language: Language = "python",
         cwd: str | None = None,
@@ -51,7 +51,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             sandbox_config: Sandbox restrictions configuration
             lifespan_handler: Async context manager for tool server
             dependencies: List of packages to install
-            timeout: Execution timeout in seconds
+            default_command_timeout: Execution timeout in seconds
             executable: Executable to use (auto-detect if None)
             language: Programming language
             cwd: Working directory for the sandbox
@@ -62,7 +62,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
-            default_command_timeout=timeout,
+            default_command_timeout=default_command_timeout,
             isolated=True,
             executable=executable,
             language=language,
@@ -70,7 +70,6 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             env_vars=env_vars,
             inherit_env=inherit_env,
         )
-        self.timeout = timeout  # Store for srt settings
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()
         atexit.register(self._cleanup_settings_file)
@@ -88,7 +87,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             deny_read=self.sandbox_config.deny_read,
             allow_write=self.sandbox_config.allow_write,
             deny_write=self.sandbox_config.deny_write,
-            timeout=self.timeout,
+            timeout=self.default_command_timeout,
         )
 
     def _create_settings_file(self) -> Path:

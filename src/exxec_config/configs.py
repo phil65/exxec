@@ -396,14 +396,6 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     """Sandbox restrictions configuration."""
 
-    sandbox_timeout: float = Field(
-        default=300.0,
-        gt=0.0,
-        title="Sandbox Lifetime",
-        examples=[300.0, 600.0, 3600.0],
-    )
-    """How long the sandbox stays alive in seconds."""
-
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> SRTExecutionEnvironment:
@@ -414,7 +406,6 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             sandbox_config=self.sandbox,
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.sandbox_timeout,
             default_command_timeout=self.default_command_timeout,
             executable=self.executable,
             language=self.language,
@@ -528,6 +519,9 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     gpu: str | None = Field(default=None, title="GPU Type", examples=["T4", "A100", "A10G"])
     """GPU type."""
 
+    timeout: int = Field(default=60, title="Timeout")
+    """Timeout for the sandbox."""
+
     idle_timeout: int | None = Field(default=None, title="Idle Timeout (seconds)")
     """Idle timeout in seconds."""
 
@@ -555,6 +549,7 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             memory=self.memory,
             gpu=self.gpu,
             timeout=int(self.timeout),
+            default_command_timeout=self.default_command_timeout,
             idle_timeout=self.idle_timeout,
             workdir=self.workdir,
             language=self.language,
@@ -651,6 +646,9 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     ports: list[int] = Field(default=[3000], title="Ports")
     """List of ports to expose."""
 
+    timeout: int = Field(default=60, title="Timeout")
+    """Timeout for the sandbox."""
+
     language: Language = Field(
         default="python",
         title="Programming Language",
@@ -678,7 +676,8 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             runtime=self.runtime,
-            timeout=int(self.timeout),
+            default_command_timeout=self.default_command_timeout,
+            timeout=self.timeout,
             resources=self.resources,
             ports=self.ports,
             language=self.language,
