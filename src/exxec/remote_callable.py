@@ -87,7 +87,7 @@ def infer_package_dependencies(import_path: str) -> list[str]:
     """
     if not import_path:
         return []
-    root_module = import_path.split(".")[0]
+    root_module = import_path.split(".", maxsplit=1)[0]
     packages = []
     try:
         # Try to find which package provides this module
