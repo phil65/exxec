@@ -129,7 +129,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             case _:
                 sandbox_class = PythonSandbox
         # Create sandbox with context manager
-        self.sandbox = await sandbox_class.create(  # ty: ignore[missing-argument]
+        self.sandbox = await sandbox_class.create(
             server_url=self.server_url,  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
             namespace=self.namespace,
             api_key=self.api_key,
