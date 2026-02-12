@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
+
 __version__ = version("exxec")
 __title__ = "Exxec"
 __author__ = "Philipp Temminghoff"
@@ -23,7 +24,7 @@ from exxec.docker_provider import DockerExecutionEnvironment, DockerPtyManager
 from exxec.local_provider import LocalExecutionEnvironment, LocalPtyManager
 from exxec.pyodide_provider import PyodideExecutionEnvironment
 from exxec.e2b_provider import E2bExecutionEnvironment, E2BPtyManager
-from exxec.srt_provider import SRTExecutionEnvironment, SandboxConfig
+from exxec.srt_provider import SRTExecutionEnvironment
 from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
 from exxec.modal_provider import ModalExecutionEnvironment, ModalPtyManager
 from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment, VercelRuntime
@@ -36,6 +37,7 @@ from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
 from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
 if TYPE_CHECKING:
+    from exxec_config.srt_sandbox_config import SandboxConfig
     from exxec_config import ExecutionEnvironmentStr
     from contextlib import AbstractAsyncContextManager
 
@@ -317,7 +319,6 @@ __all__ = [
     "PtySize",
     "PyodideExecutionEnvironment",
     "SRTExecutionEnvironment",
-    "SandboxConfig",
     "ServerInfo",
     "SshExecutionEnvironment",
     "SshPtyManager",

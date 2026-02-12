@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from exxec.srt_provider.config import SandboxConfig
 from exxec.srt_provider.provider import SRTExecutionEnvironment
 
-__all__ = ["SRTExecutionEnvironment", "SandboxConfig"]
+__all__ = ["SRTExecutionEnvironment"]

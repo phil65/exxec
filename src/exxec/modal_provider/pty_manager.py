@@ -98,12 +98,7 @@ class ModalPtyManager(BasePtyManager):
             exec_args = args
 
         # Create process with PTY enabled
-        process = await self._sandbox.exec.aio(
-            exec_cmd,
-            *exec_args,
-            pty=True,
-            env=env,  # type: ignore[arg-type]
-        )
+        process = await self._sandbox.exec.aio(exec_cmd, *exec_args, pty=True, env=env)  # type: ignore[arg-type]
 
         # Modal doesn't expose PID directly
         info = PtyInfo(

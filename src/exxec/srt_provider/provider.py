@@ -10,7 +10,7 @@ import tempfile
 from typing import TYPE_CHECKING
 
 from exxec.local_provider import LocalExecutionEnvironment
-from exxec.srt_provider.config import SandboxConfig
+from exxec_config import SandboxConfig
 
 
 if TYPE_CHECKING:
