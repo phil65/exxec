@@ -105,11 +105,9 @@ class VercelTerminalManager(ProcessManagerProtocol):
                 if stderr := await terminal._command.stderr():
                     terminal.add_output(f"STDERR: {stderr}")
 
-                # Get exit code if available
-                if hasattr(terminal._command.cmd, "exitCode"):
-                    exit_code = terminal._command.cmd.exitCode
-                    if exit_code is not None:
-                        terminal.set_exit_code(exit_code)
+                exit_code = terminal._command.cmd.exit_code
+                if exit_code is not None:
+                    terminal.set_exit_code(exit_code)
 
         except Exception as e:
             logger.exception("Error collecting output for %s", terminal.terminal_id)
