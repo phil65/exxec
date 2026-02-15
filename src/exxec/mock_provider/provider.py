@@ -5,11 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import uuid
 
-from fsspec.implementations.asyn_wrapper import (  # type: ignore[import-untyped]
-    AsyncFileSystemWrapper,
-)
-from fsspec.implementations.memory import MemoryFileSystem  # type: ignore[import-untyped]
-
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.mock_provider.process_manager import MockProcessManager
@@ -58,6 +53,9 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             env_vars: Environment variables (stored but not used in mock)
             inherit_env: If True, inherit environment variables from os.environ
         """
+        from upathtools import to_async_fs
+        from upathtools.filesystems import IsolatedMemoryFileSystem
+
         super().__init__(cwd=cwd, env_vars=env_vars, inherit_env=inherit_env)
         self._code_results = code_results or {}
         self._command_results = command_results or {}
@@ -71,8 +69,8 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             stderr="",
             exit_code=0,
         )
-        self._sync_fs = MemoryFileSystem()
-        self._fs = AsyncFileSystemWrapper(self._sync_fs)
+        self._sync_fs = IsolatedMemoryFileSystem()
+        self._fs = to_async_fs(self._sync_fs)
         self._mock_process_manager = MockProcessManager(
             default_output=default_process_output,
             command_outputs=process_outputs,
