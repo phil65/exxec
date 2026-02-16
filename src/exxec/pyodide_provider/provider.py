@@ -5,17 +5,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from pathlib import Path
 import shutil
 import time
 from typing import TYPE_CHECKING, Any, Self
 
 from anyenv.processes import create_process
+from upathtools.filesystems.sandbox_filesystems.pyodide_fs import PyodideFS, build_command
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
-from exxec.pyodide_provider.filesystem import PyodideFS
 
 
 if TYPE_CHECKING:
@@ -23,22 +22,10 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
+    from upathtools.filesystems.sandbox_filesystems.pyodide_fs import PyodideMethod
+
     from exxec.events import ExecutionEvent
     from exxec.models import ServerInfo
-    from exxec.pyodide_provider.filesystem import PyodideMethod
-
-
-# Path to the TypeScript server relative to this file
-SERVER_SCRIPT = Path(__file__).parent / "pyodide_server.ts"
-
-
-def _build_permission_flag(flag: str, value: bool | list[str]) -> str | None:
-    """Build a Deno permission flag string."""
-    if value is True:
-        return flag
-    if isinstance(value, list) and value:
-        return f"{flag}={','.join(value)}"
-    return None
 
 
 class PyodideExecutionEnvironment(ExecutionEnvironment):
@@ -118,46 +105,23 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
         # Pyodide emulates a Linux-like environment
         self._os_type = "Linux"
 
-    def _build_command(self) -> list[str]:
-        """Build the Deno command with permissions."""
-        if not self.deno_executable:
-            msg = "Deno executable not found. Install from https://deno.land"
-            raise RuntimeError(msg)
-
-        cmd = [self.deno_executable, "run"]
-
-        # Build permission flags
-        permission_defs = [
-            ("--allow-net", self.allow_net),
-            ("--allow-read", self.allow_read),
-            ("--allow-write", self.allow_write),
-            ("--allow-env", self.allow_env),
-            ("--allow-run", self.allow_run),
-            ("--allow-ffi", self.allow_ffi),
-        ]
-
-        for flag, value in permission_defs:
-            perm = _build_permission_flag(flag, value)
-            if perm:
-                cmd.append(perm)
-
-        # Always need read for node_modules (Pyodide downloads)
-        if not self.allow_read:
-            cmd.append("--allow-read=node_modules")
-        if not self.allow_write:
-            cmd.append("--allow-write=node_modules")
-
-        cmd.append("--node-modules-dir=auto")
-        cmd.append(str(SERVER_SCRIPT))
-
-        return cmd
-
     async def __aenter__(self) -> Self:
         """Start the Deno/Pyodide server process."""
         import anyenv
 
         await super().__aenter__()
-        cmd = self._build_command()
+        if not self.deno_executable:
+            msg = "Deno executable not found. Install from https://deno.land"
+            raise RuntimeError(msg)
+        cmd = build_command(
+            self.deno_executable,
+            allow_net=self.allow_net,
+            allow_read=self.allow_read,
+            allow_write=self.allow_write,
+            allow_env=self.allow_env,
+            allow_run=self.allow_run,
+            allow_ffi=self.allow_ffi,
+        )
         self._process = await create_process(*cmd, stdin="pipe", stdout="pipe", stderr="pipe")
         # Wait for ready signal
         try:
@@ -316,10 +280,8 @@ class PyodideExecutionEnvironment(ExecutionEnvironment):
 
                 match event_type:
                     case "started":
-                        yield ProcessStartedEvent(
-                            process_id=pid,
-                            command=f"execute({len(code)} chars)",
-                        )
+                        cmd = f"execute({len(code)} chars)"
+                        yield ProcessStartedEvent(process_id=pid, command=cmd)
                     case "output":
                         yield OutputEvent(
                             process_id=pid,
@@ -390,12 +352,9 @@ result.returncode
         # Delegate to execute_command since streaming shell commands
         # is not really supported in Pyodide
         process_id = f"pyodide_cmd_{self._request_id + 1}"
-
         yield ProcessStartedEvent(process_id=process_id, command=command)
-
         try:
             result = await self.execute_command(command, timeout=timeout)
-
             if result.stdout:
                 yield OutputEvent(process_id=process_id, data=result.stdout, stream="stdout")
             if result.stderr:
