@@ -333,7 +333,7 @@ class HopxExecutionEnvironment(ExecutionEnvironment):
     async def get_file_content(self, path: str) -> bytes:
         """Get file content from the Hopx sandbox filesystem."""
         sandbox = self._ensure_initialized()
-        return await sandbox.files.read_bytes(path)
+        return await sandbox.files.read_bytes(path)  # type: ignore[no-any-return]
 
 
 if __name__ == "__main__":

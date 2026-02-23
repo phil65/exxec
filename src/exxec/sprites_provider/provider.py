@@ -14,11 +14,11 @@ from exxec.parse_output import get_script_path, parse_output, wrap_code
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from sprites import Sprite, SpritesClient  # type: ignore[import-untyped]
+    from sprites import Sprite, SpritesClient
     from upathtools.filesystems import SpritesFS
 
     from exxec.events import ExecutionEvent
@@ -39,10 +39,10 @@ def _get_execution_command(language: Language, script_path: str) -> list[str]:
             return ["python", script_path]
 
 
-def _run_in_thread[T](func: Any, *args: Any) -> T:
+async def _run_in_thread[T](func: Callable[..., T], *args: Any) -> T:
     """Run a sync function in a thread to avoid blocking the event loop."""
     loop = asyncio.get_event_loop()
-    return loop.run_in_executor(None, func, *args)  # type: ignore[return-value]
+    return await loop.run_in_executor(None, func, *args)
 
 
 class SpritesExecutionEnvironment(ExecutionEnvironment):

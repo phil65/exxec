@@ -16,7 +16,7 @@ from exxec.pty_manager import BasePtyManager, PtyInfo, PtySize
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from sprites import Sprite  # type: ignore[import-untyped]
+    from sprites import Sprite
 
 
 @dataclass
