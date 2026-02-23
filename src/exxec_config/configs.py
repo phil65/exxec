@@ -22,6 +22,9 @@ ExecutionEnvironmentStr = Literal[
     "modal",
     "srt",
     "pyodide",
+    "hopx",
+    "sprites",
+    "cloudflare",
 ]
 
 
@@ -29,15 +32,18 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from exxec.beam_provider import BeamExecutionEnvironment
+    from exxec.cloudflare_provider import CloudflareExecutionEnvironment
     from exxec.daytona_provider import DaytonaExecutionEnvironment
     from exxec.docker_provider import DockerExecutionEnvironment
     from exxec.e2b_provider import E2bExecutionEnvironment
+    from exxec.hopx_provider import HopxExecutionEnvironment
     from exxec.local_provider import LocalExecutionEnvironment
     from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
     from exxec.mock_provider import MockExecutionEnvironment
     from exxec.modal_provider import ModalExecutionEnvironment
     from exxec.models import ServerInfo
     from exxec.pyodide_provider import PyodideExecutionEnvironment
+    from exxec.sprites_provider import SpritesExecutionEnvironment
     from exxec.srt_provider import SRTExecutionEnvironment
     from exxec.ssh_provider import SshExecutionEnvironment
     from exxec.vercel_provider import VercelExecutionEnvironment
@@ -241,6 +247,94 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         )
 
 
+class HopxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Hopx execution environment configuration.
+
+    Executes code in Hopx cloud VM sandboxes for secure, ephemeral execution environments.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Hopx Execution Environment"})
+    type: Literal["hopx"] = Field("hopx", init=False)
+    template: str | None = Field(
+        default=None,
+        title="Hopx Template",
+        examples=["code-interpreter", "base"],
+    )
+    """Hopx template name to use."""
+
+    template_id: str | None = Field(
+        default=None,
+        title="Hopx Template ID",
+    )
+    """Hopx template ID (alternative to template name)."""
+
+    api_key: SecretStr | None = Field(
+        default=None,
+        title="Hopx API Key",
+    )
+    """Hopx API key (or use HOPX_API_KEY env var)."""
+
+    base_url: str = Field(
+        default="https://api.hopx.dev",
+        title="API Base URL",
+    )
+    """Hopx API base URL."""
+
+    region: str | None = Field(
+        default=None,
+        title="Region",
+    )
+    """Preferred region for sandbox creation."""
+
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
+    keep_alive: bool = Field(default=False, title="Keep Alive")
+    """Keep sandbox running after execution."""
+
+    internet_access: bool | None = Field(
+        default=None,
+        title="Internet Access",
+    )
+    """Enable internet access in the sandbox."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> HopxExecutionEnvironment:
+        """Create Hopx execution environment instance."""
+        from exxec.hopx_provider import HopxExecutionEnvironment
+
+        return HopxExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            template=self.template,
+            template_id=self.template_id,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
+            keep_alive=self.keep_alive,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+            api_key=self.api_key.get_secret_value() if self.api_key else None,
+            base_url=self.base_url,
+            region=self.region,
+            internet_access=self.internet_access,
+        )
+
+
 class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """Beam execution environment configuration.
 
@@ -294,6 +388,76 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             memory=self.memory,
             keep_warm_seconds=self.keep_warm_seconds,
             timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+        )
+
+
+class CloudflareExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Cloudflare sandbox execution environment configuration.
+
+    Executes code in a Cloudflare Worker sandbox deployment via HTTP API.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Cloudflare Execution Environment"})
+    type: Literal["cloudflare"] = Field("cloudflare", init=False)
+    base_url: str = Field(
+        ...,
+        title="Worker Base URL",
+        examples=["https://my-sandbox.workers.dev"],
+    )
+    """Base URL of the Cloudflare Sandbox Worker deployment."""
+
+    api_token: SecretStr | None = Field(
+        default=None,
+        title="API Token",
+    )
+    """API token for authentication (optional)."""
+
+    account_id: str | None = Field(
+        default=None,
+        title="Account ID",
+    )
+    """Cloudflare account ID (optional)."""
+
+    session_id: str | None = Field(
+        default=None,
+        title="Session ID",
+    )
+    """Explicit session ID (auto-generated if None)."""
+
+    timeout: float = Field(
+        default=30.0,
+        gt=0.0,
+        title="HTTP Timeout",
+        examples=[30.0, 60.0],
+    )
+    """HTTP request timeout in seconds."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> CloudflareExecutionEnvironment:
+        """Create Cloudflare execution environment instance."""
+        from exxec.cloudflare_provider import CloudflareExecutionEnvironment
+
+        return CloudflareExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            base_url=self.base_url,
+            api_token=self.api_token.get_secret_value() if self.api_token else None,
+            account_id=self.account_id,
+            session_id=self.session_id,
+            timeout=self.timeout,
             default_command_timeout=self.default_command_timeout,
             language=self.language,
             cwd=self.cwd,
@@ -845,11 +1009,113 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         )
 
 
+class SpritesExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Sprites execution environment configuration.
+
+    Executes code in Sprites (Fly.io) cloud VMs for secure, ephemeral execution.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Sprites Execution Environment"})
+    type: Literal["sprites"] = Field("sprites", init=False)
+    name: str | None = Field(
+        default=None,
+        title="Sprite Name",
+    )
+    """Sprite name (auto-generated if None)."""
+
+    token: SecretStr | None = Field(
+        default=None,
+        title="Sprites API Token",
+    )
+    """Sprites API token (or use SPRITES_TOKEN env var)."""
+
+    base_url: str = Field(
+        default="https://api.sprites.dev",
+        title="API Base URL",
+    )
+    """Sprites API base URL."""
+
+    region: str | None = Field(
+        default=None,
+        title="Region",
+    )
+    """Preferred region for sprite creation."""
+
+    ram_mb: int | None = Field(
+        default=None,
+        gt=0,
+        title="RAM (MB)",
+        examples=[256, 512, 1024],
+    )
+    """RAM in MB for the sprite."""
+
+    cpus: int | None = Field(
+        default=None,
+        gt=0,
+        title="CPUs",
+        examples=[1, 2, 4],
+    )
+    """Number of CPUs for the sprite."""
+
+    storage_gb: int | None = Field(
+        default=None,
+        gt=0,
+        title="Storage (GB)",
+        examples=[1, 5, 10],
+    )
+    """Storage in GB for the sprite."""
+
+    timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Default Timeout",
+        examples=[300.0, 600.0],
+    )
+    """Default command timeout in seconds."""
+
+    keep_alive: bool = Field(default=False, title="Keep Alive")
+    """Keep sprite running after exiting context manager."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> SpritesExecutionEnvironment:
+        """Create Sprites execution environment instance."""
+        from exxec.sprites_provider import SpritesExecutionEnvironment
+
+        return SpritesExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            name=self.name,
+            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
+            keep_alive=self.keep_alive,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+            token=self.token.get_secret_value() if self.token else None,
+            base_url=self.base_url,
+            ram_mb=self.ram_mb,
+            cpus=self.cpus,
+            region=self.region,
+            storage_gb=self.storage_gb,
+        )
+
+
 # Union type for all execution environment configurations
 ExecutionEnvironmentConfig = Annotated[
     LocalExecutionEnvironmentConfig
+    | CloudflareExecutionEnvironmentConfig
     | DockerExecutionEnvironmentConfig
     | E2bExecutionEnvironmentConfig
+    | HopxExecutionEnvironmentConfig
     | BeamExecutionEnvironmentConfig
     | DaytonaExecutionEnvironmentConfig
     | SRTExecutionEnvironmentConfig
@@ -858,7 +1124,8 @@ ExecutionEnvironmentConfig = Annotated[
     | ModalExecutionEnvironmentConfig
     | SshExecutionEnvironmentConfig
     | VercelExecutionEnvironmentConfig
-    | PyodideExecutionEnvironmentConfig,
+    | PyodideExecutionEnvironmentConfig
+    | SpritesExecutionEnvironmentConfig,
     # | ACPExecutionEnvironmentConfig,
     Field(discriminator="type"),
 ]

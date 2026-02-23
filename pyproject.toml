@@ -46,12 +46,15 @@ Source = "https://github.com/phil65/exxec"
 
 [project.optional-dependencies]
 beam = ["beam-client>=0.2.187"]
+cloudflare = ["httpx>=0.27"]
 daytona = ["daytona; python_version < '3.14'"]
 docker = ["testcontainers"]
 e2b = ["e2b-code-interpreter"]
+hopx = ["hopx-ai"]
 mcp = ["fastmcp", "mcp-run-python"]
 microsandbox = ["microsandbox"]
 modal = ["modal"]
+sprites = ["sprites-py"]
 ssh = ["asyncssh", "sshfs"]
 vercel = ["vercel"]
 
