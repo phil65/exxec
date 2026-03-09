@@ -2,7 +2,7 @@
 
 [project]
 name = "exxec"
-version = "0.1.0"
+version = "0.4.0"
 description = "Execution environments"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -29,6 +29,8 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
+  "anyenv>=1.11.6",
+  "ptyprocess>=0.7.0",
   "pydantic",
   "schemez",
   # Only add below (Copier)
@@ -44,12 +46,15 @@ Source = "https://github.com/phil65/exxec"
 
 [project.optional-dependencies]
 beam = ["beam-client>=0.2.187"]
+cloudflare = ["httpx>=0.27"]
 daytona = ["daytona; python_version < '3.14'"]
-docker = ["testcontainers", "morefs"]
+docker = ["testcontainers"]
 e2b = ["e2b-code-interpreter"]
+hopx = ["hopx-ai"]
 mcp = ["fastmcp", "mcp-run-python"]
 microsandbox = ["microsandbox"]
 modal = ["modal"]
+sprites = ["sprites-py"]
 ssh = ["asyncssh", "sshfs"]
 vercel = ["vercel"]
 
@@ -101,8 +106,8 @@ docstring-style = "google"
 
 [tool.mypy]
 python_version = "3.13"
-disable_error_code = ["misc", "import"]
 pretty = true
+strict = true
 check_untyped_defs = true
 exclude = ["venv/", ".venv/", "tests/"]
 plugins = ["pydantic.mypy"]
@@ -127,9 +132,13 @@ reportSelfClsParameterName = false
 reportPrivateImportUsage = false
 
 [tool.pytest]
+addopts = ["-m", "not integration"]
 log_cli = true
 log_date_format = "%Y-%m-%d %H:%M:%S"
 log_format = "%(asctime)s %(levelname)s %(message)s"
+markers = [
+  "integration: marks tests as integration tests (deselected by default)",
+]
 minversion = "9.0"
 testpaths = ["tests/"]
 asyncio_mode = "auto"
@@ -281,10 +290,20 @@ preview = true
 python-version = "3.13"
 python-platform = "all"
 
+[tool.ty.rules]
+unresolved-import = "ignore"
+unused-type-ignore-comment = "ignore"
+
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]
+# Override to resolve beam-client (<14) vs daytona (>=15) websockets conflict
+override-dependencies = ["websockets>=15.0.0"]
 
 [tool.uv.build-backend]
+module-name = [
+  "exxec",
+  "exxec_config",
+]
 wheel-exclude = [
   ".mypy_cache/**",
   "__pycache__/**",

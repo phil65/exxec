@@ -4,16 +4,11 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.daytona_provider.helpers import convert_language
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_python_code
 
@@ -23,9 +18,10 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from daytona._async.sandbox import AsyncSandbox  # type: ignore[import-untyped]
+    from daytona._async.sandbox import AsyncSandbox
     from upathtools.filesystems import DaytonaFS
 
+    from exxec.daytona_provider.pty_manager import DaytonaPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
 
@@ -44,6 +40,10 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 300.0,
         keep_alive: bool = False,
         language: Language = "python",
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Daytona environment.
 
@@ -54,13 +54,24 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             api_key: API key for authentication (uses DAYTONA_API_KEY env var if None)
             target: Target location (uses DAYTONA_TARGET env var if None)
             image: Docker image to use for the sandbox
-            timeout: Execution timeout in seconds
+            timeout: Sandbox lifetime timeout in seconds
             keep_alive: Keep sandbox running after execution
             language: Programming language to use for execution
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
-        from daytona import AsyncDaytona, DaytonaConfig  # type: ignore[import-untyped]
+        from daytona import AsyncDaytona, DaytonaConfig
 
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.image = image
         self.timeout = timeout
         self.keep_alive = keep_alive
@@ -68,6 +79,10 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         config = DaytonaConfig(api_url=api_url, api_key=api_key, target=target)
         self.daytona = AsyncDaytona(config)
         self._sandbox: AsyncSandbox | None = None
+        # Daytona sandboxes run Linux containers
+        self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: DaytonaPtyManager | None = None
 
     @property
     def sandbox(self) -> AsyncSandbox:
@@ -78,7 +93,7 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
     async def __aenter__(self) -> Self:
         """Setup Daytona client and create sandbox."""
         await super().__aenter__()
-        from daytona.common.daytona import (  # type: ignore[import-untyped]
+        from daytona.common.daytona import (
             CreateSandboxFromImageParams,
         )
 
@@ -119,13 +134,23 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
 
         return DaytonaFS(sandbox_id=self.sandbox.id)
 
+    def get_pty_manager(self) -> DaytonaPtyManager:
+        """Return a DaytonaPtyManager for interactive terminal sessions."""
+        if self._pty_manager is None:
+            from exxec.daytona_provider.pty_manager import DaytonaPtyManager
+
+            self._pty_manager = DaytonaPtyManager(self.sandbox)
+        return self._pty_manager
+
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Daytona sandbox."""
         start_time = time.time()
         wrapped_code = wrap_python_code(code)
         try:
             response = await self.sandbox.process.exec(
-                f"python -c '{wrapped_code}'", timeout=int(self.timeout)
+                f"python -c '{wrapped_code}'",
+                timeout=int(self.timeout),
+                env=self.get_env(),
             )
             # Parse execution results
             if response.exit_code == 0:
@@ -164,11 +189,20 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Daytona sandbox."""
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         try:
-            response = await self.sandbox.process.exec(command, timeout=int(self.timeout))
+            exec_kwargs: dict[str, Any] = {"env": self.get_env()}
+            if effective_timeout is not None:
+                exec_kwargs["timeout"] = int(effective_timeout)
+            response = await self.sandbox.process.exec(command, **exec_kwargs)
             success = response.exit_code == 0
             return ExecutionResult(
                 result=response.result if success else None,
@@ -208,12 +242,17 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute terminal command and stream events in the Daytona sandbox."""
         process_id = f"daytona_cmd_{id(self.sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            result = await self.execute_command(command)
+            result = await self.execute_command(command, timeout=timeout)
             if result.stdout:
                 yield OutputEvent(process_id=process_id, data=result.stdout, stream="combined")
             if result.success:

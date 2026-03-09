@@ -5,21 +5,12 @@ from __future__ import annotations
 import contextlib
 import time
 from typing import TYPE_CHECKING, Any, Literal, Self
+import uuid
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
-from exxec.parse_output import (
-    get_script_path,
-    parse_command,
-    parse_output,
-    wrap_code,
-)
+from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
 
 
 # Vercel runtime options based on the API error message
@@ -77,6 +68,10 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         token: str | None = None,
         project_id: str | None = None,
         team_id: str | None = None,
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ):
         """Initialize Vercel sandbox environment.
 
@@ -92,8 +87,19 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             token: Vercel API token (uses environment if None)
             project_id: Vercel project ID (uses environment if None)
             team_id: Vercel team ID (uses environment if None)
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.runtime = runtime
         # Convert timeout from seconds to milliseconds for Vercel API
         self.timeout_ms = timeout * 1000
@@ -105,6 +111,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         self.resources = resources
         self.ports = ports or [3000]
         self.language: Language = language
+        # Vercel sandboxes run Linux
+        self._os_type = "Linux"
         self.token = token
         self.project_id = project_id
         self.team_id = team_id
@@ -187,7 +195,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             script_path, wrapped_code = self._prepare_code_execution(code)
             await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command(cmd, args)
+            result = await sandbox.run_command(cmd, args, env=self.get_env())
             stdout = await result.stdout()
             stderr = await result.stderr()
             execution_result, error_info = parse_output(stdout)
@@ -215,15 +223,38 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
-        cmd, args = parse_command(command)
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Wrap command with shell timeout for enforcement if timeout is set
+        if effective_timeout is not None:
+            wrapped_command = f"timeout {effective_timeout} {command}"
+        else:
+            wrapped_command = command
+        cmd, args = parse_command(wrapped_command)
         start_time = time.time()
         try:
-            result = await sandbox.run_command(cmd, args or None)
+            result = await sandbox.run_command(cmd, args or None, env=self.get_env())
             stdout = await result.stdout()
             stderr = await result.stderr()
+            # Exit code 124 is timeout's exit code when command times out
+            if result.exit_code == 124:  # noqa: PLR2004
+                return ExecutionResult(
+                    result=None,
+                    duration=time.time() - start_time,
+                    success=False,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=124,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
             success = result.exit_code == 0
             return ExecutionResult(
                 result=stdout if success else None,
@@ -241,13 +272,14 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
-        process_id = f"vercel_{id(sandbox)}"
-        yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
+        process_id: str | None = None
         try:
             script_path, wrapped_code = self._prepare_code_execution(code)
             await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command_detached(cmd, args)
+            result = await sandbox.run_command_detached(cmd, args, env=self.get_env())
+            process_id = result.cmd_id
+            yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
             async for log_line in sandbox.client.get_logs(
                 sandbox_id=sandbox.sandbox_id, cmd_id=result.cmd_id
             ):
@@ -268,16 +300,28 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
                 )
 
         except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            error_id = process_id or str(uuid.uuid4())[:8]
+            yield ProcessErrorEvent.failed(e, process_id=error_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
-        cmd, args = parse_command(command)
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Wrap command with shell timeout for enforcement if timeout is set
+        if effective_timeout is not None:
+            wrapped_command = f"timeout {effective_timeout} {command}"
+        else:
+            wrapped_command = command
+        cmd, args = parse_command(wrapped_command)
         process_id = f"vercel_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            async_cmd = await sandbox.run_command_detached(cmd, args or None)
+            async_cmd = await sandbox.run_command_detached(cmd, args or None, env=self.get_env())
             async for log_line in sandbox.client.get_logs(
                 sandbox_id=sandbox.sandbox_id, cmd_id=async_cmd.cmd_id
             ):
@@ -287,7 +331,15 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
                             yield OutputEvent(process_id=process_id, data=line, stream="combined")
 
             finished = await async_cmd.wait()
-            if finished.exit_code == 0:
+            # Exit code 124 is timeout's exit code when command times out
+            if finished.exit_code == 124:  # noqa: PLR2004
+                yield ProcessErrorEvent(
+                    process_id=process_id,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=finished.exit_code,
+                )
+            elif finished.exit_code == 0:
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=finished.exit_code)
             else:
                 yield ProcessErrorEvent(

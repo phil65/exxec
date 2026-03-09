@@ -6,12 +6,7 @@ import time
 from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.parse_output import wrap_command
 
@@ -27,6 +22,7 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.ssh_provider.pty_manager import SshPtyManager
 
 
 class SshExecutionEnvironment(ExecutionEnvironment):
@@ -41,9 +37,11 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         password: str | None = None,
         private_key_path: str | None = None,
         port: int = 22,
-        timeout: float = 60.0,
+        default_command_timeout: float | None = 60.0,
         language: Language = "python",
         cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
         **ssh_kwargs: Any,
     ) -> None:
         """Initialize SSH environment.
@@ -56,25 +54,35 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             lifespan_handler: lifespan handler during execution
             private_key_path: Path to SSH private key file
             port: SSH port
-            timeout: Execution timeout in seconds
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
             language: Programming language to use
             cwd: Remote working directory (auto-generated if None)
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
             **ssh_kwargs: Additional arguments passed to asyncssh.connect()
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.host = host
         self.username = username
         self.password = password
         self.private_key_path = private_key_path
         self.port = port
-        self.timeout = timeout
         self.language = language
-        self.cwd = cwd
         self.ssh_kwargs = ssh_kwargs
 
         self._connection_cm: _ACMWrapper[SSHClientConnection] | None = None
         self.connection: SSHClientConnection | None = None
         self._remote_work_dir: str | None = None
+        # Cache PTY manager instance
+        self._pty_manager: SshPtyManager | None = None
         self._fs: WrapperFileSystem | None = None
 
     def _ensure_connected(self) -> SSHClientConnection:
@@ -91,9 +99,18 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             raise RuntimeError(msg)
         return self.connection
 
+    def _prepend_env_vars(self, command: str) -> str:
+        """Prepend environment variable exports to a command."""
+        env = self.get_env()
+        if not env:
+            return command
+        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
+        return f"env {exports} {command}"
+
     async def run(self, command: str) -> SSHCompletedProcess:
         """Run a command on the remote machine with login shell."""
         connection = self._ensure_connected()
+        command = self._prepend_env_vars(command)
         return await connection.run(wrap_command(command))
 
     async def __aenter__(self) -> Self:
@@ -190,6 +207,15 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             raise RuntimeError(msg)
         return self._fs
 
+    def get_pty_manager(self) -> SshPtyManager:
+        """Return a SshPtyManager for interactive terminal sessions."""
+        if self._pty_manager is None:
+            from exxec.ssh_provider.pty_manager import SshPtyManager
+
+            connection = self._ensure_connected()
+            self._pty_manager = SshPtyManager(connection)
+        return self._pty_manager
+
     async def _verify_tools(self) -> None:
         """Verify that required tools are available on the remote machine."""
         if self.language == "python":
@@ -261,10 +287,19 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def run_in_working_dir(self, cmd: str, timeout: bool = False) -> SSHCompletedProcess:
-        """Run a command in the working directory."""
-        if timeout:
-            cmd = f"cd {self._remote_work_dir} && timeout {self.timeout} {cmd}"
+    async def run_in_working_dir(
+        self,
+        cmd: str,
+        timeout: float | None = None,
+    ) -> SSHCompletedProcess:
+        """Run a command in the working directory.
+
+        Args:
+            cmd: Command to run
+            timeout: Optional timeout in seconds (None means no timeout)
+        """
+        if timeout is not None:
+            cmd = f"cd {self._remote_work_dir} && timeout {timeout} {cmd}"
         else:
             cmd = f"cd {self._remote_work_dir} && {cmd}"
         return await self.run(cmd)
@@ -280,7 +315,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             cmd = f"uv run {with_args} python {script_path}"
         else:
             cmd = f"uv run python {script_path}"
-        return await self.run_in_working_dir(cmd, timeout=True)
+        return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
     async def write_file(self, path: str, content: str) -> None:
         """Write content to a file on the remote server."""
@@ -291,7 +326,9 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         self._ensure_connected()
         script_path = f"{self._remote_work_dir}/script.js"
         await self.write_file(script_path, code)
-        return await self.run_in_working_dir(f"node {script_path}", timeout=True)
+        return await self.run_in_working_dir(
+            f"node {script_path}", timeout=self.default_command_timeout
+        )
 
     async def _execute_typescript(self, code: str) -> Any:
         """Execute TypeScript code using ts-node or similar."""
@@ -306,7 +343,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             # Compile and run
             cmd = f"npx tsc {script_path} && node script.js"
 
-        return await self.run_in_working_dir(cmd, timeout=True)
+        return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
     def _inject_tool_server(self, code: str) -> str:
         """Inject tool server URL into Python code if available."""
@@ -322,13 +359,19 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
 """
         return injection + code
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a shell command on the remote machine."""
         self._ensure_connected()
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
-            result = await self.run_in_working_dir(command, timeout=True)
+            result = await self.run_in_working_dir(command, timeout=effective_timeout)
             success = result.returncode == 0
             stderr = err.decode() if isinstance(err := result.stderr, bytes) else err
             stdout = out.decode() if isinstance(out := result.stdout, bytes) else out
@@ -386,13 +429,19 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute command and stream events over SSH."""
         connection = self._ensure_connected()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         process_id = f"ssh_cmd_{id(connection)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            cmd = f"cd {self._remote_work_dir} && {command}"
+            cmd = f"cd {self._remote_work_dir} && timeout {effective_timeout} {command}"
             async with connection.create_process(wrap_command(cmd)) as process:
                 async for line in process.stdout:
                     data = line.rstrip("\n\r")
@@ -401,7 +450,15 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
                     data = line.rstrip("\n\r")
                     yield OutputEvent(process_id=process_id, data=data, stream="stderr")
                 code = process.returncode or 0
-                if code == 0:
+                # Exit code 124 is timeout's exit code when command times out
+                if code == 124:  # noqa: PLR2004
+                    yield ProcessErrorEvent(
+                        process_id=process_id,
+                        error=f"Command timed out after {effective_timeout} seconds",
+                        error_type="TimeoutError",
+                        exit_code=code,
+                    )
+                elif code == 0:
                     yield ProcessCompletedEvent(process_id=process_id, exit_code=code)
                 else:
                     yield ProcessErrorEvent(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
+
 __version__ = version("exxec")
 __title__ = "Exxec"
 __author__ = "Philipp Temminghoff"
@@ -14,45 +15,39 @@ __url__ = "https://github.com/phil65/exxec"
 
 from typing import Any, Literal, overload, TYPE_CHECKING, assert_never
 
-from exxec.base import ExecutionEnvironment
+from exxec.base import ExecutionEnvironment, OSType
 
 from exxec.beam_provider import BeamExecutionEnvironment
-from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager
-from exxec.daytona_provider import DaytonaExecutionEnvironment
-from exxec.docker_provider import DockerExecutionEnvironment
-from exxec.local_provider import LocalExecutionEnvironment
+from exxec.cloudflare_provider import CloudflareExecutionEnvironment
+from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager, MockPtyManager
+from exxec.daytona_provider import DaytonaExecutionEnvironment, DaytonaPtyManager
+from exxec.docker_provider import DockerExecutionEnvironment, DockerPtyManager
+from exxec.local_provider import LocalExecutionEnvironment, LocalPtyManager
 from exxec.pyodide_provider import PyodideExecutionEnvironment
-from exxec.e2b_provider import E2bExecutionEnvironment
-from exxec.srt_provider import SRTExecutionEnvironment, SandboxConfig
+from exxec.e2b_provider import E2bExecutionEnvironment, E2BPtyManager
+from exxec.hopx_provider import HopxExecutionEnvironment, HopxPtyManager
+from exxec.sprites_provider import SpritesExecutionEnvironment, SpritesPtyManager
+from exxec.srt_provider import SRTExecutionEnvironment
 from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
-from exxec.modal_provider import ModalExecutionEnvironment
+from exxec.modal_provider import ModalExecutionEnvironment, ModalPtyManager
 from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment, VercelRuntime
 from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
 # from exxec.server import fastapi_tool_server
-
-from exxec.ssh_provider import SshExecutionEnvironment
+from exxec_config import ExecutionEnvironmentConfig
+from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
+from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
 if TYPE_CHECKING:
+    from exxec_config.srt_sandbox_config import SandboxConfig
+    from exxec_config import ExecutionEnvironmentStr
     from contextlib import AbstractAsyncContextManager
 
     from exxec.models import Language
 
 
-ExecutionEnvironmentStr = Literal[
-    "local",
-    "docker",
-    "ssh",
-    "daytona",
-    "e2b",
-    "beam",
-    "vercel",
-    "microsandbox",
-    "modal",
-    "srt",
-    "pyodide",
-]
+# ExecutionEnvironmentStr is now imported from exxec_config
 
 
 @overload
@@ -108,6 +103,20 @@ def get_environment(
     timeout: float = 300.0,
     keep_alive: bool = False,
 ) -> DaytonaExecutionEnvironment: ...
+
+
+@overload
+def get_environment(
+    provider: Literal["cloudflare"],
+    *,
+    lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
+    base_url: str = "",
+    api_token: str | None = None,
+    account_id: str | None = None,
+    session_id: str | None = None,
+    timeout: float = 30.0,
+    language: Language = "python",
+) -> CloudflareExecutionEnvironment: ...
 
 
 @overload
@@ -201,6 +210,41 @@ def get_environment(
 
 @overload
 def get_environment(
+    provider: Literal["hopx"],
+    *,
+    lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
+    template: str | None = None,
+    template_id: str | None = None,
+    timeout: float = 300.0,
+    keep_alive: bool = False,
+    language: Language = "python",
+    api_key: str | None = None,
+    base_url: str = "https://api.hopx.dev",
+    region: str | None = None,
+    internet_access: bool | None = None,
+) -> HopxExecutionEnvironment: ...
+
+
+@overload
+def get_environment(
+    provider: Literal["sprites"],
+    *,
+    lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
+    name: str | None = None,
+    timeout: float = 300.0,
+    keep_alive: bool = False,
+    language: Language = "python",
+    token: str | None = None,
+    base_url: str = "https://api.sprites.dev",
+    region: str | None = None,
+    ram_mb: int | None = None,
+    cpus: int | None = None,
+    storage_gb: int | None = None,
+) -> SpritesExecutionEnvironment: ...
+
+
+@overload
+def get_environment(
     provider: Literal["pyodide"],
     *,
     lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
@@ -215,6 +259,13 @@ def get_environment(
     allow_ffi: bool | list[str] = False,
     deno_executable: str | None = None,
 ) -> PyodideExecutionEnvironment: ...
+
+
+@overload
+def get_environment(
+    provider: ExecutionEnvironmentStr,
+    **kwargs: Any,
+) -> ExecutionEnvironment: ...
 
 
 def get_environment(  # noqa: PLR0911
@@ -267,6 +318,8 @@ def get_environment(  # noqa: PLR0911
     match provider:
         case "local":
             return LocalExecutionEnvironment(**kwargs)
+        case "cloudflare":
+            return CloudflareExecutionEnvironment(**kwargs)
         case "docker":
             return DockerExecutionEnvironment(**kwargs)
         case "ssh":
@@ -285,6 +338,12 @@ def get_environment(  # noqa: PLR0911
             return ModalExecutionEnvironment(**kwargs)
         case "srt":
             return SRTExecutionEnvironment(**kwargs)
+        case "hopx":
+            from exxec.hopx_provider import HopxExecutionEnvironment
+
+            return HopxExecutionEnvironment(**kwargs)
+        case "sprites":
+            return SpritesExecutionEnvironment(**kwargs)
         case "pyodide":
             return PyodideExecutionEnvironment(**kwargs)
         case _ as unreachable:
@@ -292,24 +351,45 @@ def get_environment(  # noqa: PLR0911
 
 
 __all__ = [
+    # Base classes and protocols
+    "BasePtyManager",
+    # Execution environments
     "BeamExecutionEnvironment",
+    "CloudflareExecutionEnvironment",
     "DaytonaExecutionEnvironment",
+    # PTY managers
+    "DaytonaPtyManager",
     "DockerExecutionEnvironment",
+    "DockerPtyManager",
+    "E2BPtyManager",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",
+    "ExecutionEnvironmentConfig",
     "ExecutionResult",
+    "HopxExecutionEnvironment",
+    "HopxPtyManager",
     "LocalExecutionEnvironment",
+    "LocalPtyManager",
     "MicrosandboxExecutionEnvironment",
     "MockExecutionEnvironment",
     "MockProcessManager",
+    "MockPtyManager",
     "ModalExecutionEnvironment",
+    "ModalPtyManager",
+    "OSType",
+    "PtyInfo",
+    "PtyManagerProtocol",
+    "PtySize",
     "PyodideExecutionEnvironment",
     "SRTExecutionEnvironment",
-    "SandboxConfig",
     "ServerInfo",
+    "SpritesExecutionEnvironment",
+    "SpritesPtyManager",
     "SshExecutionEnvironment",
+    "SshPtyManager",
     "VercelExecutionEnvironment",
     "VercelRuntime",
+    # Utilities
     "create_remote_callable",
     "get_environment",
     "infer_package_dependencies",

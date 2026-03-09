@@ -21,7 +21,7 @@ class ProcessNotFoundError(ValueError):
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from acp.acp_requests import ACPRequests
+    from acp.agent.acp_requests import ACPRequests
 
 
 @dataclass

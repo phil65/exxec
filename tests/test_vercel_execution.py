@@ -1,7 +1,8 @@
 """Tests for VercelExecutionEnvironment."""
 
-from anyenv.code_execution import VercelExecutionEnvironment
 import pytest
+
+from exxec import VercelExecutionEnvironment
 
 
 EXPECTED_RESULT = 42

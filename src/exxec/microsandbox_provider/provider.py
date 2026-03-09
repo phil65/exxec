@@ -7,12 +7,7 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_command
 
@@ -44,6 +39,10 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         timeout: float = 180.0,
         language: Language = "python",
         image: str | None = None,
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Microsandbox environment.
 
@@ -58,8 +57,19 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             timeout: Sandbox start timeout in seconds
             language: Programming language to use
             image: Custom Docker image (uses default for language if None)
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions (via command prefix)
+            inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.server_url = server_url
         self.namespace = namespace
         self.api_key = api_key
@@ -69,6 +79,27 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         self.language = language
         self.image = image
         self.sandbox: PythonSandbox | NodeSandbox | None = None
+        # Microsandbox runs Linux containers
+        self._os_type = "Linux"
+
+    def _get_env_prefix(self) -> str:
+        """Get environment variable prefix for commands."""
+        env = self.get_env()
+        if not env:
+            return ""
+        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
+        return f"env {exports} "
+
+    def _inject_env_vars_to_code(self, code: str) -> str:
+        """Inject environment variables into Python code."""
+        env = self.get_env()
+        if not env or self.language != "python":
+            return code
+        # Prepend os.environ updates
+        env_setup = "import os\n"
+        for key, value in env.items():
+            env_setup += f"os.environ[{key!r}] = {value!r}\n"
+        return env_setup + code
 
     def _ensure_initialized(self) -> PythonSandbox | NodeSandbox:
         """Validate that the environment is properly initialized.
@@ -99,7 +130,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
                 sandbox_class = PythonSandbox
         # Create sandbox with context manager
         self.sandbox = await sandbox_class.create(
-            server_url=self.server_url,  # pyright: ignore[reportArgumentType]
+            server_url=self.server_url,  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
             namespace=self.namespace,
             api_key=self.api_key,
         ).__aenter__()
@@ -141,7 +172,9 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         start_time = time.time()
         try:
-            execution = await sandbox.run(code)
+            # Inject environment variables into code for Python
+            code_with_env = self._inject_env_vars_to_code(code)
+            execution = await sandbox.run(code_with_env)
             stdout = await execution.output()
             stderr = await execution.error()
             success = not execution.has_error()
@@ -167,15 +200,39 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Microsandbox environment."""
         sandbox = self._ensure_initialized()
-        cmd, args = parse_command(command)
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
+        # Prepend environment variables and wrap with timeout if set
+        env_prefix = self._get_env_prefix()
+        if effective_timeout is not None:
+            full_command = f"{env_prefix}timeout {effective_timeout} {command}"
+        else:
+            full_command = env_prefix + command
+        cmd, args = parse_command(full_command)
         start_time = time.time()
         try:
             execution = await sandbox.command.run(cmd, args)
             stdout = await execution.output()
             stderr = await execution.error()
+            # Exit code 124 indicates timeout
+            if execution.exit_code == 124:  # noqa: PLR2004
+                return ExecutionResult(
+                    result=None,
+                    duration=time.time() - start_time,
+                    success=False,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=124,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
             success = execution.success
             return ExecutionResult(
                 result=stdout if success else None,
@@ -217,12 +274,17 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute terminal command and emit combined events (no real-time streaming)."""
         process_id = f"microsandbox_cmd_{id(self.sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            result = await self.execute_command(command)
+            result = await self.execute_command(command, timeout=timeout)
             if result.stdout:  # Emit output as single combined event
                 yield OutputEvent(process_id=process_id, data=result.stdout, stream="combined")
             if result.success:

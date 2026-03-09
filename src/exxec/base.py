@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 
 if TYPE_CHECKING:
@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import ExecutionResult, ServerInfo
+    from exxec.pty_manager import PtyManagerProtocol
+
+
+OSType = Literal["Windows", "Darwin", "Linux"]
 
 
 class ExecutionEnvironment(ABC):
@@ -26,6 +30,10 @@ class ExecutionEnvironment(ABC):
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
+        default_command_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize execution environment with optional lifespan handler.
@@ -33,18 +41,47 @@ class ExecutionEnvironment(ABC):
         Args:
             lifespan_handler: Optional async context manager for tool server
             dependencies: Optional list of dependencies to install
+            cwd: Working directory for the environment (None means use default/auto)
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
+                This is separate from sandbox/instance lifetime timeouts.
             **kwargs: Additional keyword arguments for specific providers
         """
         self.lifespan_handler = lifespan_handler
         self.server_info: ServerInfo | None = None
         self.dependencies = dependencies or []
+        self.cwd = cwd
+        self.env_vars = env_vars or {}
+        self.inherit_env = inherit_env
+        self.default_command_timeout = default_command_timeout
         self._process_manager: ProcessManagerProtocol | None = None
+        self._os_type: OSType | None = None
+
+    def get_env(self) -> dict[str, str] | None:
+        """Get environment variables, optionally merged with os.environ.
+
+        Returns:
+            Merged environment dict if inherit_env=True or env_vars set,
+            None otherwise.
+        """
+        import os
+
+        if not self.env_vars and not self.inherit_env:
+            return None
+        if self.inherit_env:
+            return {**os.environ, **(self.env_vars or {})}
+        return self.env_vars or None
 
     async def __aenter__(self) -> Self:
         """Setup environment (start server, spawn process, etc.)."""
         # Start tool server if provided
         if self.lifespan_handler:
             self.server_info = await self.lifespan_handler.__aenter__()
+        # Detect OS type if not already set by subclass
+        if self._os_type is None:
+            self._os_type = await self._detect_os_type()
         return self
 
     async def __aexit__(
@@ -67,6 +104,46 @@ class ExecutionEnvironment(ABC):
             self._process_manager = EnvironmentTerminalManager(self)
         return self._process_manager
 
+    @property
+    def os_type(self) -> OSType:
+        """Get the OS type of the execution environment.
+
+        Returns:
+            "Windows", "Darwin", or "Linux"
+
+        Raises:
+            RuntimeError: If accessed before entering the async context manager.
+        """
+        if self._os_type is None:
+            msg = "OS type not detected. Use 'async with' context manager first."
+            raise RuntimeError(msg)
+        return self._os_type
+
+    async def _detect_os_type(self) -> OSType:
+        """Detect OS type by running commands in the environment.
+
+        Providers can override this if they know the OS statically.
+
+        Returns:
+            "Windows", "Darwin", or "Linux"
+        """
+        # Try uname first (works on Linux/macOS)
+        result = await self.execute_command("uname -s")
+        if result.exit_code == 0 and result.stdout:
+            uname = result.stdout.strip()
+            if uname == "Darwin":
+                return "Darwin"
+            if uname == "Linux":
+                return "Linux"
+
+        # Check for Windows
+        result = await self.execute_command("ver")
+        if result.exit_code == 0 and result.stdout and "Windows" in result.stdout:
+            return "Windows"
+
+        # Default to Linux for Unix-like systems
+        return "Linux"
+
     @abstractmethod
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code and return result with metadata."""
@@ -75,6 +152,18 @@ class ExecutionEnvironment(ABC):
     def get_fs(self) -> AsyncFileSystem:
         """Return a MicrosandboxFS instance for the sandbox."""
         msg = "VFS is not supported"
+        raise NotImplementedError(msg)
+
+    def get_pty_manager(self) -> PtyManagerProtocol:
+        """Return a PTY manager for interactive terminal sessions.
+
+        Returns:
+            A PtyManagerProtocol implementation for this environment.
+
+        Raises:
+            NotImplementedError: If PTY is not supported by this provider.
+        """
+        msg = "PTY is not supported"
         raise NotImplementedError(msg)
 
     async def set_file_content(self, path: str, content: str | bytes) -> None:
@@ -112,11 +201,18 @@ class ExecutionEnvironment(ABC):
         ...
 
     @abstractmethod
-    def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events (required).
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Yields:
             ExecutionEvent objects as they occur
@@ -141,31 +237,45 @@ class ExecutionEnvironment(ABC):
                 yield event.data
 
     @abstractmethod
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command and return result with metadata.
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Returns:
             ExecutionResult with command output and metadata
         """
         ...
 
-    async def execute_command_stream(self, command: str) -> AsyncIterator[str]:
+    async def execute_command_stream(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[str]:
         """Execute a terminal command and stream output line by line.
 
         Default implementation delegates to stream_command() and filters OutputEvents.
 
         Args:
             command: Terminal command to execute
+            timeout: Command timeout in seconds. If None, uses default_command_timeout.
+                If both are None, command runs without timeout.
 
         Yields:
             Lines of output as they are produced
         """
         from exxec.events import OutputEvent
 
-        async for event in self.stream_command(command):
+        async for event in self.stream_command(command, timeout=timeout):
             if isinstance(event, OutputEvent):
                 yield event.data
 

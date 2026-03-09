@@ -2,32 +2,61 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import ConfigDict, Field, SecretStr
+from schemez import Schema
 
-from exxec.models import Language
-from exxec.srt_provider.config import SandboxConfig
+from exxec_config.srt_sandbox_config import SandboxConfig
+
+
+ExecutionEnvironmentStr = Literal[
+    "local",
+    "docker",
+    "ssh",
+    "daytona",
+    "e2b",
+    "beam",
+    "vercel",
+    "microsandbox",
+    "modal",
+    "srt",
+    "pyodide",
+    "hopx",
+    "sprites",
+    "cloudflare",
+]
 
 
 if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from exxec.beam_provider import BeamExecutionEnvironment
+    from exxec.cloudflare_provider import CloudflareExecutionEnvironment
     from exxec.daytona_provider import DaytonaExecutionEnvironment
     from exxec.docker_provider import DockerExecutionEnvironment
     from exxec.e2b_provider import E2bExecutionEnvironment
+    from exxec.hopx_provider import HopxExecutionEnvironment
     from exxec.local_provider import LocalExecutionEnvironment
     from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
+    from exxec.mock_provider import MockExecutionEnvironment
     from exxec.modal_provider import ModalExecutionEnvironment
     from exxec.models import ServerInfo
     from exxec.pyodide_provider import PyodideExecutionEnvironment
+    from exxec.sprites_provider import SpritesExecutionEnvironment
     from exxec.srt_provider import SRTExecutionEnvironment
     from exxec.ssh_provider import SshExecutionEnvironment
     from exxec.vercel_provider import VercelExecutionEnvironment
 
 
-class BaseExecutionEnvironmentConfig(BaseModel):
+Language = Literal["python", "javascript", "typescript"]
+
+VercelRuntime = Literal[
+    "node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"
+]
+
+
+class BaseExecutionEnvironmentConfig(Schema):
     """Base execution environment configuration."""
 
     type: str = Field(init=False)
@@ -40,15 +69,33 @@ class BaseExecutionEnvironmentConfig(BaseModel):
     )
     """List of packages to install (pip for Python, npm for JS/TS)."""
 
-    timeout: float = Field(
-        default=60.0,
+    default_command_timeout: float | None = Field(
+        default=None,
         gt=0.0,
-        title="Execution Timeout",
-        examples=[120.0, 300.0],
+        title="Default Command Timeout",
+        examples=[30.0, 60.0, 120.0],
     )
-    """Execution timeout in seconds."""
+    """Default timeout for individual command execution in seconds. None means no timeout."""
 
-    model_config = ConfigDict(use_attribute_docstrings=True, extra="forbid")
+    cwd: str | None = Field(
+        default=None,
+        title="Working Directory",
+        examples=["/home/user/project", "/tmp/workspace"],
+    )
+    """Working directory for the environment (None means use default/auto)."""
+
+    env_vars: dict[str, str] | None = Field(
+        default=None,
+        title="Environment Variables",
+        examples=[{"API_KEY": "secret", "DEBUG": "1"}],
+    )
+    """Environment variables to set for all executions."""
+
+    inherit_env: bool = Field(
+        default=False,
+        title="Inherit Environment",
+    )
+    """If True, inherit environment variables from os.environ (default False for security)."""
 
 
 class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
@@ -78,6 +125,13 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     isolated: bool = Field(default=False, title="Isolated Execution")
     """Whether to run code in a subprocess."""
 
+    root_path: str | None = Field(
+        default=None,
+        title="Root path",
+        examples=["/app", "/home/user"],
+    )
+    """Path to become the root of the filesystem."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> LocalExecutionEnvironment:
@@ -87,10 +141,14 @@ class LocalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return LocalExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
             isolated=self.isolated,
             executable=self.executable,
             language=self.language,
+            root_path=self.root_path,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -128,8 +186,11 @@ class DockerExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             image=self.image,
-            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -140,15 +201,21 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """
 
     model_config = ConfigDict(json_schema_extra={"x-doc-title": "E2B Execution Environment"})
-
     type: Literal["e2b"] = Field("e2b", init=False)
-
     template: str | None = Field(
         default=None,
         title="E2B Template",
         examples=["python", "nodejs", "custom-template-id"],
     )
     """E2B template to use."""
+
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
 
     keep_alive: bool = Field(default=False, title="Keep Alive")
     """Keep sandbox running after execution."""
@@ -170,9 +237,101 @@ class E2bExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             template=self.template,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             keep_alive=self.keep_alive,
             language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+        )
+
+
+class HopxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Hopx execution environment configuration.
+
+    Executes code in Hopx cloud VM sandboxes for secure, ephemeral execution environments.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Hopx Execution Environment"})
+    type: Literal["hopx"] = Field("hopx", init=False)
+    template: str | None = Field(
+        default=None,
+        title="Hopx Template",
+        examples=["code-interpreter", "base"],
+    )
+    """Hopx template name to use."""
+
+    template_id: str | None = Field(
+        default=None,
+        title="Hopx Template ID",
+    )
+    """Hopx template ID (alternative to template name)."""
+
+    api_key: SecretStr | None = Field(
+        default=None,
+        title="Hopx API Key",
+    )
+    """Hopx API key (or use HOPX_API_KEY env var)."""
+
+    base_url: str = Field(
+        default="https://api.hopx.dev",
+        title="API Base URL",
+    )
+    """Hopx API base URL."""
+
+    region: str | None = Field(
+        default=None,
+        title="Region",
+    )
+    """Preferred region for sandbox creation."""
+
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
+    keep_alive: bool = Field(default=False, title="Keep Alive")
+    """Keep sandbox running after execution."""
+
+    internet_access: bool | None = Field(
+        default=None,
+        title="Internet Access",
+    )
+    """Enable internet access in the sandbox."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> HopxExecutionEnvironment:
+        """Create Hopx execution environment instance."""
+        from exxec.hopx_provider import HopxExecutionEnvironment
+
+        return HopxExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            template=self.template,
+            template_id=self.template_id,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
+            keep_alive=self.keep_alive,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+            api_key=self.api_key.get_secret_value() if self.api_key else None,
+            base_url=self.base_url,
+            region=self.region,
+            internet_access=self.internet_access,
         )
 
 
@@ -195,19 +354,19 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """CPU cores allocated to the container."""
 
-    memory: int | str = Field(
-        default=128,
-        title="Memory (MiB)",
-        examples=[128, "1Gi"],
-    )
+    memory: int | str = Field(default=128, title="Memory (MiB)", examples=[128, "1Gi"])
     """Memory allocated to the container in MiB."""
 
-    keep_warm_seconds: int = Field(
-        default=600,
-        title="Keep Warm Duration",
-        examples=[300, 600, -1],
-    )
+    keep_warm_seconds: int = Field(default=600, title="Keep Warm Duration", examples=[300, 600, -1])
     """Seconds to keep sandbox alive, -1 for no timeout."""
+
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
 
     language: Language = Field(
         default="python",
@@ -228,8 +387,82 @@ class BeamExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             cpu=self.cpu,
             memory=self.memory,
             keep_warm_seconds=self.keep_warm_seconds,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+        )
+
+
+class CloudflareExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Cloudflare sandbox execution environment configuration.
+
+    Executes code in a Cloudflare Worker sandbox deployment via HTTP API.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Cloudflare Execution Environment"})
+    type: Literal["cloudflare"] = Field("cloudflare", init=False)
+    base_url: str = Field(
+        ...,
+        title="Worker Base URL",
+        examples=["https://my-sandbox.workers.dev"],
+    )
+    """Base URL of the Cloudflare Sandbox Worker deployment."""
+
+    api_token: SecretStr | None = Field(
+        default=None,
+        title="API Token",
+    )
+    """API token for authentication (optional)."""
+
+    account_id: str | None = Field(
+        default=None,
+        title="Account ID",
+    )
+    """Cloudflare account ID (optional)."""
+
+    session_id: str | None = Field(
+        default=None,
+        title="Session ID",
+    )
+    """Explicit session ID (auto-generated if None)."""
+
+    timeout: float = Field(
+        default=30.0,
+        gt=0.0,
+        title="HTTP Timeout",
+        examples=[30.0, 60.0],
+    )
+    """HTTP request timeout in seconds."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> CloudflareExecutionEnvironment:
+        """Create Cloudflare execution environment instance."""
+        from exxec.cloudflare_provider import CloudflareExecutionEnvironment
+
+        return CloudflareExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            base_url=self.base_url,
+            api_token=self.api_token.get_secret_value() if self.api_token else None,
+            account_id=self.account_id,
+            session_id=self.session_id,
+            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -240,9 +473,7 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     """
 
     model_config = ConfigDict(json_schema_extra={"x-doc-title": "Daytona Execution Environment"})
-
     type: Literal["daytona"] = Field("daytona", init=False)
-
     api_url: str | None = Field(
         default=None,
         title="API URL",
@@ -270,6 +501,14 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     keep_alive: bool = Field(default=False, title="Keep Alive")
     """Keep sandbox running after execution."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> DaytonaExecutionEnvironment:
@@ -284,8 +523,12 @@ class DaytonaExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             api_key=api_key_str,
             target=self.target,
             image=self.image,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             keep_alive=self.keep_alive,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -327,9 +570,12 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             sandbox_config=self.sandbox,
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
             executable=self.executable,
             language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -352,27 +598,16 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Microsandbox server URL (uses MSB_SERVER_URL env var if None)."""
 
-    namespace: str = Field(
-        default="default",
-        title="Namespace",
-    )
+    namespace: str = Field(default="default", title="Namespace")
     """Sandbox namespace."""
 
     api_key: SecretStr | None = Field(default=None, title="API Key")
     """API key for authentication (uses MSB_API_KEY env var if None)."""
 
-    memory: int = Field(
-        default=512,
-        ge=128,
-        title="Memory (MB)",
-    )
+    memory: int = Field(default=512, ge=128, title="Memory (MB)")
     """Memory limit in MB."""
 
-    cpus: float = Field(
-        default=1.0,
-        ge=0.1,
-        title="CPU Cores",
-    )
+    cpus: float = Field(default=1.0, ge=0.1, title="CPU Cores")
     """CPU limit."""
 
     language: Language = Field(
@@ -389,6 +624,14 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Custom Docker image (uses default for language if None)."""
 
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
+
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> MicrosandboxExecutionEnvironment:
@@ -404,9 +647,13 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             api_key=api_key_str,
             memory=self.memory,
             cpus=self.cpus,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             image=self.image,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -427,37 +674,22 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Modal app name (creates if missing)."""
 
-    cpu: float | None = Field(
-        default=None,
-        ge=0.1,
-        title="CPU Cores",
-    )
+    cpu: float | None = Field(default=None, ge=0.1, title="CPU Cores")
     """CPU allocation in cores."""
 
-    memory: int | None = Field(
-        default=None,
-        ge=128,
-        title="Memory (MB)",
-    )
+    memory: int | None = Field(default=None, ge=128, title="Memory (MB)")
     """Memory allocation in MB."""
 
-    gpu: str | None = Field(
-        default=None,
-        title="GPU Type",
-        examples=["T4", "A100", "A10G"],
-    )
+    gpu: str | None = Field(default=None, title="GPU Type", examples=["T4", "A100", "A10G"])
     """GPU type."""
 
-    idle_timeout: int | None = Field(
-        default=None,
-        title="Idle Timeout (seconds)",
-    )
+    timeout: int = Field(default=60, title="Timeout")
+    """Timeout for the sandbox."""
+
+    idle_timeout: int | None = Field(default=None, title="Idle Timeout (seconds)")
     """Idle timeout in seconds."""
 
-    workdir: str = Field(
-        default="/tmp",
-        title="Working Directory",
-    )
+    workdir: str = Field(default="/tmp", title="Working Directory")
     """Working directory in sandbox."""
 
     language: Language = Field(
@@ -481,9 +713,13 @@ class ModalExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             memory=self.memory,
             gpu=self.gpu,
             timeout=int(self.timeout),
+            default_command_timeout=self.default_command_timeout,
             idle_timeout=self.idle_timeout,
             workdir=self.workdir,
             language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -497,16 +733,10 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["ssh"] = Field("ssh", init=False)
 
-    host: str = Field(
-        title="Host",
-        examples=["192.168.1.100", "example.com"],
-    )
+    host: str = Field(title="Host", examples=["192.168.1.100", "example.com"])
     """Remote host to connect to."""
 
-    username: str = Field(
-        title="Username",
-        examples=["ubuntu", "root"],
-    )
+    username: str = Field(title="Username", examples=["ubuntu", "root"])
     """SSH username."""
 
     password: SecretStr | None = Field(default=None, title="Password")
@@ -519,12 +749,7 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Path to SSH private key file."""
 
-    port: int = Field(
-        default=22,
-        ge=1,
-        le=65535,
-        title="SSH Port",
-    )
+    port: int = Field(default=22, ge=1, le=65535, title="SSH Port")
     """SSH port."""
 
     language: Language = Field(
@@ -534,12 +759,13 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     )
     """Programming language to use."""
 
-    cwd: str | None = Field(
-        default=None,
-        title="Working Directory",
-        examples=["/tmp", "~/workspace"],
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Connection Timeout",
+        examples=[300.0, 600.0, 3600.0],
     )
-    """Remote working directory (auto-generated if None)."""
+    """SSH connection timeout in seconds."""
 
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
@@ -556,9 +782,12 @@ class SshExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             password=password_str,
             private_key_path=self.private_key_path,
             port=self.port,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             language=self.language,
             cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
 
 
@@ -572,26 +801,17 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["vercel"] = Field("vercel", init=False)
 
-    runtime: (
-        Literal["node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"]
-        | None
-    ) = Field(
-        default=None,
-        title="Runtime",
-    )
+    runtime: VercelRuntime | None = Field(default=None, title="Runtime")
     """Vercel runtime to use."""
 
-    resources: dict[str, int | str] | None = Field(
-        default=None,
-        title="Resources",
-    )
+    resources: dict[str, int | str] | None = Field(default=None, title="Resources")
     """Resource configuration for the sandbox."""
 
-    ports: list[int] = Field(
-        default=[3000],
-        title="Ports",
-    )
+    ports: list[int] = Field(default=[3000], title="Ports")
     """List of ports to expose."""
+
+    timeout: int = Field(default=60, title="Timeout")
+    """Timeout for the sandbox."""
 
     language: Language = Field(
         default="python",
@@ -603,16 +823,10 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
     token: SecretStr | None = Field(default=None, title="API Token")
     """Vercel API token (uses environment if None)."""
 
-    project_id: str | None = Field(
-        default=None,
-        title="Project ID",
-    )
+    project_id: str | None = Field(default=None, title="Project ID")
     """Vercel project ID (uses environment if None)."""
 
-    team_id: str | None = Field(
-        default=None,
-        title="Team ID",
-    )
+    team_id: str | None = Field(default=None, title="Team ID")
     """Vercel team ID (uses environment if None)."""
 
     def get_provider(
@@ -626,14 +840,102 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
             runtime=self.runtime,
-            timeout=int(self.timeout),
+            default_command_timeout=self.default_command_timeout,
+            timeout=self.timeout,
             resources=self.resources,
             ports=self.ports,
             language=self.language,
             token=token_str,
             project_id=self.project_id,
             team_id=self.team_id,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
         )
+
+
+class MockExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Mock execution environment configuration.
+
+    For testing purposes. Uses an in-memory filesystem and configurable results.
+    Dicts are passed as **kwargs to ExecutionResult/ProcessOutput constructors.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Mock Execution Environment"})
+
+    type: Literal["mock"] = Field("mock", init=False)
+
+    code_results: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        title="Code Results",
+        examples=[{"print('hello')": {"stdout": "hello", "success": True}}],
+    )
+    """Map of code string to ExecutionResult kwargs dict."""
+
+    command_results: dict[str, dict[str, Any]] | None = Field(
+        default=None,
+        title="Command Results",
+        examples=[{"ls": {"stdout": "file1.txt", "success": True}}],
+    )
+    """Map of command string to ExecutionResult kwargs dict."""
+
+    default_result: dict[str, Any] | None = Field(
+        default=None,
+        title="Default Result",
+        examples=[{"stdout": "", "success": True}],
+    )
+    """Default ExecutionResult kwargs when no specific match is found."""
+
+    deterministic_ids: bool = Field(
+        default=False,
+        title="Deterministic IDs",
+    )
+    """Use sequential IDs instead of UUIDs for processes (useful for snapshot testing)."""
+
+    files: dict[str, str] | None = Field(
+        default=None,
+        title="Files",
+        examples=[{"/test/hello.txt": "Hello, World!", "/data/config.json": '{"key": "value"}'}],
+    )
+    """Map of file paths to contents to pre-populate in the in-memory filesystem."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> MockExecutionEnvironment:
+        """Create mock execution environment instance."""
+        from exxec.mock_provider import MockExecutionEnvironment
+        from exxec.models import ExecutionResult
+
+        code_results = None
+        if self.code_results:
+            code_results = {k: ExecutionResult(**v) for k, v in self.code_results.items()}
+
+        command_results = None
+        if self.command_results:
+            command_results = {k: ExecutionResult(**v) for k, v in self.command_results.items()}
+
+        default_result = None
+        if self.default_result:
+            default_result = ExecutionResult(**self.default_result)
+
+        env = MockExecutionEnvironment(
+            code_results=code_results,
+            command_results=command_results,
+            default_result=default_result,
+            deterministic_ids=self.deterministic_ids,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+        )
+
+        # Pre-populate files in the in-memory filesystem
+        if self.files:
+            for path, content in self.files.items():
+                env._sync_fs.pipe_file(
+                    path, content.encode() if isinstance(content, str) else content
+                )
+
+        return env
 
 
 class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
@@ -646,47 +948,25 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["pyodide"] = Field("pyodide", init=False)
 
-    startup_timeout: float = Field(
-        default=60.0,
-        gt=0.0,
-        title="Startup Timeout",
-    )
+    startup_timeout: float = Field(default=60.0, gt=0.0, title="Startup Timeout")
     """Timeout for Pyodide initialization in seconds."""
 
-    allow_net: bool | list[str] = Field(
-        default=True,
-        title="Network Access",
-    )
+    allow_net: bool | list[str] = Field(default=True, title="Network Access")
     """Network access (True=all, list=specific hosts, False=none)."""
 
-    allow_read: bool | list[str] = Field(
-        default=False,
-        title="File Read Access",
-    )
+    allow_read: bool | list[str] = Field(default=False, title="File Read Access")
     """File read access."""
 
-    allow_write: bool | list[str] = Field(
-        default=False,
-        title="File Write Access",
-    )
+    allow_write: bool | list[str] = Field(default=False, title="File Write Access")
     """File write access."""
 
-    allow_env: bool | list[str] = Field(
-        default=False,
-        title="Environment Variable Access",
-    )
+    allow_env: bool | list[str] = Field(default=False, title="Environment Variable Access")
     """Environment variable access."""
 
-    allow_run: bool | list[str] = Field(
-        default=False,
-        title="Subprocess Execution",
-    )
+    allow_run: bool | list[str] = Field(default=False, title="Subprocess Execution")
     """Subprocess execution (limited in WASM)."""
 
-    allow_ffi: bool | list[str] = Field(
-        default=False,
-        title="FFI Access",
-    )
+    allow_ffi: bool | list[str] = Field(default=False, title="FFI Access")
     """Foreign function interface access."""
 
     deno_executable: str | None = Field(
@@ -695,6 +975,14 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         examples=["deno", "/usr/local/bin/deno"],
     )
     """Path to deno executable (auto-detected if None)."""
+
+    sandbox_timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Sandbox Lifetime",
+        examples=[300.0, 600.0, 3600.0],
+    )
+    """How long the sandbox stays alive in seconds."""
 
     def get_provider(
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
@@ -705,7 +993,8 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return PyodideExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            timeout=self.timeout,
+            timeout=self.sandbox_timeout,
+            default_command_timeout=self.default_command_timeout,
             startup_timeout=self.startup_timeout,
             allow_net=self.allow_net,
             allow_read=self.allow_read,
@@ -714,22 +1003,129 @@ class PyodideExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
             allow_run=self.allow_run,
             allow_ffi=self.allow_ffi,
             deno_executable=self.deno_executable,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+        )
+
+
+class SpritesExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
+    """Sprites execution environment configuration.
+
+    Executes code in Sprites (Fly.io) cloud VMs for secure, ephemeral execution.
+    """
+
+    model_config = ConfigDict(json_schema_extra={"x-doc-title": "Sprites Execution Environment"})
+    type: Literal["sprites"] = Field("sprites", init=False)
+    name: str | None = Field(
+        default=None,
+        title="Sprite Name",
+    )
+    """Sprite name (auto-generated if None)."""
+
+    token: SecretStr | None = Field(
+        default=None,
+        title="Sprites API Token",
+    )
+    """Sprites API token (or use SPRITES_TOKEN env var)."""
+
+    base_url: str = Field(
+        default="https://api.sprites.dev",
+        title="API Base URL",
+    )
+    """Sprites API base URL."""
+
+    region: str | None = Field(
+        default=None,
+        title="Region",
+    )
+    """Preferred region for sprite creation."""
+
+    ram_mb: int | None = Field(
+        default=None,
+        gt=0,
+        title="RAM (MB)",
+        examples=[256, 512, 1024],
+    )
+    """RAM in MB for the sprite."""
+
+    cpus: int | None = Field(
+        default=None,
+        gt=0,
+        title="CPUs",
+        examples=[1, 2, 4],
+    )
+    """Number of CPUs for the sprite."""
+
+    storage_gb: int | None = Field(
+        default=None,
+        gt=0,
+        title="Storage (GB)",
+        examples=[1, 5, 10],
+    )
+    """Storage in GB for the sprite."""
+
+    timeout: float = Field(
+        default=300.0,
+        gt=0.0,
+        title="Default Timeout",
+        examples=[300.0, 600.0],
+    )
+    """Default command timeout in seconds."""
+
+    keep_alive: bool = Field(default=False, title="Keep Alive")
+    """Keep sprite running after exiting context manager."""
+
+    language: Language = Field(
+        default="python",
+        title="Programming Language",
+        examples=["python", "javascript", "typescript"],
+    )
+    """Programming language to use."""
+
+    def get_provider(
+        self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
+    ) -> SpritesExecutionEnvironment:
+        """Create Sprites execution environment instance."""
+        from exxec.sprites_provider import SpritesExecutionEnvironment
+
+        return SpritesExecutionEnvironment(
+            lifespan_handler=lifespan_handler,
+            dependencies=self.dependencies,
+            name=self.name,
+            timeout=self.timeout,
+            default_command_timeout=self.default_command_timeout,
+            keep_alive=self.keep_alive,
+            language=self.language,
+            cwd=self.cwd,
+            env_vars=self.env_vars,
+            inherit_env=self.inherit_env,
+            token=self.token.get_secret_value() if self.token else None,
+            base_url=self.base_url,
+            ram_mb=self.ram_mb,
+            cpus=self.cpus,
+            region=self.region,
+            storage_gb=self.storage_gb,
         )
 
 
 # Union type for all execution environment configurations
 ExecutionEnvironmentConfig = Annotated[
     LocalExecutionEnvironmentConfig
+    | CloudflareExecutionEnvironmentConfig
     | DockerExecutionEnvironmentConfig
     | E2bExecutionEnvironmentConfig
+    | HopxExecutionEnvironmentConfig
     | BeamExecutionEnvironmentConfig
     | DaytonaExecutionEnvironmentConfig
     | SRTExecutionEnvironmentConfig
     | MicrosandboxExecutionEnvironmentConfig
+    | MockExecutionEnvironmentConfig
     | ModalExecutionEnvironmentConfig
     | SshExecutionEnvironmentConfig
     | VercelExecutionEnvironmentConfig
-    | PyodideExecutionEnvironmentConfig,
+    | PyodideExecutionEnvironmentConfig
+    | SpritesExecutionEnvironmentConfig,
     # | ACPExecutionEnvironmentConfig,
     Field(discriminator="type"),
 ]

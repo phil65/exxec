@@ -10,7 +10,7 @@ import tempfile
 from typing import TYPE_CHECKING
 
 from exxec.local_provider import LocalExecutionEnvironment
-from exxec.srt_provider.config import SandboxConfig
+from exxec_config import SandboxConfig
 
 
 if TYPE_CHECKING:
@@ -38,9 +38,12 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         *,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        timeout: float = 30.0,
+        default_command_timeout: float | None = None,
         executable: str | None = None,
         language: Language = "python",
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize sandboxed execution environment.
 
@@ -48,18 +51,24 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             sandbox_config: Sandbox restrictions configuration
             lifespan_handler: Async context manager for tool server
             dependencies: List of packages to install
-            timeout: Execution timeout in seconds
+            default_command_timeout: Execution timeout in seconds
             executable: Executable to use (auto-detect if None)
             language: Programming language
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
         # Force isolated mode - sandbox only works with subprocess
         super().__init__(
             lifespan_handler=lifespan_handler,
             dependencies=dependencies,
-            timeout=timeout,
+            default_command_timeout=default_command_timeout,
             isolated=True,
             executable=executable,
             language=language,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
         )
         self.sandbox_config = sandbox_config or SandboxConfig()
         self._settings_file = self._create_settings_file()
@@ -78,7 +87,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
             deny_read=self.sandbox_config.deny_read,
             allow_write=self.sandbox_config.allow_write,
             deny_write=self.sandbox_config.deny_write,
-            timeout=self.timeout,
+            timeout=self.default_command_timeout,
         )
 
     def _create_settings_file(self) -> Path:

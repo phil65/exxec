@@ -30,6 +30,7 @@ class TerminalTask(BaseTerminal):
     """Represents a running terminal task for the generic implementation."""
 
     task: asyncio.Task[Any] | None = field(default=None)
+    process: asyncio.subprocess.Process | None = field(default=None)
 
     def is_running(self) -> bool:
         """Check if task is still running."""
@@ -71,20 +72,41 @@ class EnvironmentTerminalManager(ProcessManagerProtocol):
         return terminal_id
 
     async def _run_terminal(self, terminal_id: str, command: str) -> None:
-        """Run terminal command in background."""
+        """Run terminal command in background.
+
+        Spawns process directly without timeout constraints to support
+        long-running daemon processes.
+        """
+        from anyenv.processes import create_shell_process
+
         terminal = self._terminals[terminal_id]
         try:
-            result = await self.env.execute_command(command)
-            if result.stdout:
-                terminal.add_output(result.stdout)
-            if result.stderr:
-                terminal.add_output(result.stderr)
-            # Use actual exit code if available, otherwise infer from success
-            if result.exit_code is not None:
-                terminal.set_exit_code(result.exit_code)
-            else:
-                terminal.set_exit_code(0 if result.success else 1)
+            process = await create_shell_process(
+                command,
+                stdout="pipe",
+                stderr="stdout",
+                env=self.env.get_env(),
+            )
+            terminal.process = process  # Store for kill_process
 
+            # Read output without timeout (daemon-friendly)
+            if process.stdout:
+                while True:
+                    line = await process.stdout.readline()
+                    if not line:
+                        break
+                    terminal.add_output(line.decode())
+
+            exit_code = await process.wait()
+            terminal.set_exit_code(exit_code)
+
+        except asyncio.CancelledError:
+            # Task was cancelled (e.g., kill_process called)
+            if hasattr(terminal, "process") and terminal.process:
+                terminal.process.kill()
+                await terminal.process.wait()
+            terminal.set_exit_code(130)
+            raise
         except Exception as e:
             terminal.add_output(f"Terminal error: {e}\n")
             terminal.set_exit_code(1)
@@ -128,6 +150,12 @@ class EnvironmentTerminalManager(ProcessManagerProtocol):
 
         terminal = self._terminals[process_id]
         if terminal.is_running():
+            # Kill the subprocess first if it exists
+            if terminal.process and terminal.process.returncode is None:
+                terminal.process.kill()
+                with contextlib.suppress(Exception):
+                    await terminal.process.wait()
+            # Then cancel the task
             if terminal.task:
                 terminal.task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

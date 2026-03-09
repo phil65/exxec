@@ -3,5 +3,6 @@
 from __future__ import annotations
 
 from exxec.daytona_provider.provider import DaytonaExecutionEnvironment
+from exxec.daytona_provider.pty_manager import DaytonaPtyManager
 
-__all__ = ["DaytonaExecutionEnvironment"]
+__all__ = ["DaytonaExecutionEnvironment", "DaytonaPtyManager"]

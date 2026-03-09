@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import shutil
 import tempfile
@@ -9,12 +10,7 @@ import time
 from typing import TYPE_CHECKING, Literal, Self
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_code
 
@@ -27,6 +23,7 @@ if TYPE_CHECKING:
     from fsspec.implementations.dirfs import DirFileSystem  # type: ignore[import-untyped]
     from testcontainers.core.container import DockerContainer  # type: ignore[import-untyped]
 
+    from exxec.docker_provider.pty_manager import DockerPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
 
@@ -39,8 +36,11 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
         image: str = "python:3.13-slim",
-        timeout: float = 60.0,
+        default_command_timeout: float | None = 60.0,
         language: Language = "python",
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
     ) -> None:
         """Initialize Docker environment.
 
@@ -48,15 +48,29 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of packages to install (pip for Python, npm for JS/TS)
             image: Docker image to use
-            timeout: Execution timeout in seconds
+            default_command_timeout: Default timeout for command execution in seconds.
+                If None, commands run without timeout unless explicitly specified.
             language: Programming language to use
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.image = image
-        self.timeout = timeout
         self.language: Language = language
         self.container: DockerContainer | None = None
         self.host_workdir: str | None = None
+        # Docker containers are always Linux
+        self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: DockerPtyManager | None = None
 
     async def __aenter__(self) -> Self:
         from testcontainers.core.container import DockerContainer
@@ -66,6 +80,10 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         self.container = DockerContainer(self.image).with_volume_mapping(
             self.host_workdir, "/workspace", "rw"
         )
+        # Add environment variables if specified
+        env = self.get_env() or {}
+        for key, value in env.items():
+            self.container = self.container.with_env(key, value)
 
         install_commands: list[str] = []  # Build install commands
         if self.server_info:
@@ -108,12 +126,23 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
     def get_fs(self) -> DirFileSystem:
         """Return a DirFileSystem instance for the shared host directory."""
         from fsspec.implementations.dirfs import DirFileSystem
-        from morefs.asyn_local import AsyncLocalFileSystem
+        from upathtools.filesystems import AsyncLocalFileSystem
 
         if not self.host_workdir:
             msg = "Docker environment not started"
             raise RuntimeError(msg)
         return DirFileSystem(path=self.host_workdir, fs=AsyncLocalFileSystem())
+
+    def get_pty_manager(self) -> DockerPtyManager:
+        """Return a DockerPtyManager for interactive terminal sessions."""
+        if self._pty_manager is None:
+            from exxec.docker_provider.pty_manager import DockerPtyManager
+
+            if not self.container:
+                msg = "Docker environment not started"
+                raise RuntimeError(msg)
+            self._pty_manager = DockerPtyManager(self.container.get_wrapped_container())
+        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in Docker container."""
@@ -165,9 +194,15 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in Docker container and return result."""
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
             if not self.container:
@@ -184,7 +219,9 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
                     install_cmd = None
 
                 if install_cmd:
-                    install_result = self.container.exec(["sh", "-c", install_cmd])
+                    install_result = await asyncio.to_thread(
+                        self.container.exec, ["sh", "-c", install_cmd]
+                    )
                     if install_result.exit_code != 0:
                         error_msg = f"Failed to install dependencies: {self.dependencies}"
                         return ExecutionResult(
@@ -201,7 +238,10 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             # Execute the command cleanly (no dependency installation output)
             # Run in /workspace directory to match execute_command_stream behavior
             full_command = f"sh -c 'cd /workspace && {command}'"
-            result = self.container.exec(full_command)
+            result = await asyncio.wait_for(
+                asyncio.to_thread(self.container.exec, full_command),
+                timeout=effective_timeout,
+            )
             duration = time.time() - start_time
 
             stdout = result.output.decode() if result.output else ""
@@ -218,6 +258,17 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
                 stderr="",
             )
 
+        except TimeoutError:
+            return ExecutionResult(
+                result=None,
+                duration=time.time() - start_time,
+                success=False,
+                error=f"Command timed out after {effective_timeout} seconds",
+                error_type="TimeoutError",
+                exit_code=1,
+                stdout="",
+                stderr="",
+            )
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
@@ -270,9 +321,15 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a shell command and stream events in the Docker container."""
         process_id = f"docker_cmd_{id(self.container)}"
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         yield ProcessStartedEvent(process_id=process_id, command=command)
 
         try:
@@ -284,7 +341,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
                 )
                 return
 
-            full_command = f"sh -c 'cd /workspace && {command}'"
+            full_command = f"sh -c 'cd /workspace && timeout {effective_timeout} {command}'"
             docker_container = self.container.get_wrapped_container()
             result = docker_container.exec_run(full_command, stream=True)
 
@@ -296,7 +353,15 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
                         yield OutputEvent(process_id=process_id, data=line, stream="combined")
 
             exit_code = result.exit_code or 0
-            if exit_code == 0:
+            # Exit code 124 is timeout's exit code when command times out
+            if exit_code == 124:  # noqa: PLR2004
+                yield ProcessErrorEvent(
+                    process_id=process_id,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=exit_code,
+                )
+            elif exit_code == 0:
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
             else:
                 yield ProcessErrorEvent(

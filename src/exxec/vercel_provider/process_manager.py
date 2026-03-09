@@ -105,11 +105,9 @@ class VercelTerminalManager(ProcessManagerProtocol):
                 if stderr := await terminal._command.stderr():
                     terminal.add_output(f"STDERR: {stderr}")
 
-                # Get exit code if available
-                if hasattr(terminal._command.cmd, "exitCode"):
-                    exit_code = terminal._command.cmd.exitCode
-                    if exit_code is not None:
-                        terminal.set_exit_code(exit_code)
+                exit_code = terminal._command.cmd.exit_code
+                if exit_code is not None:
+                    terminal.set_exit_code(exit_code)
 
         except Exception as e:
             logger.exception("Error collecting output for %s", terminal.terminal_id)
@@ -129,13 +127,13 @@ class VercelTerminalManager(ProcessManagerProtocol):
                 # Check if command has finished by trying to get it again
                 assert terminal.command_id
                 updated_command = await self.sandbox.get_command(terminal.command_id)
-                if updated_command.cmd.exitCode is not None:
+                if updated_command.cmd.exit_code is not None:
                     # Command finished, collect final output
                     if await updated_command.stdout():
                         terminal.add_output(await updated_command.stdout())
                     if await updated_command.stderr():
                         terminal.add_output(f"STDERR: {await updated_command.stderr()}")
-                    terminal.set_exit_code(updated_command.cmd.exitCode)
+                    terminal.set_exit_code(updated_command.cmd.exit_code)
             except Exception:  # noqa: BLE001
                 pass  # Best effort
 
@@ -159,8 +157,8 @@ class VercelTerminalManager(ProcessManagerProtocol):
                     if terminal.command_id:
                         try:
                             updated_command = await self.sandbox.get_command(terminal.command_id)
-                            if updated_command.cmd.exitCode is not None:
-                                terminal.set_exit_code(updated_command.cmd.exitCode)
+                            if updated_command.cmd.exit_code is not None:
+                                terminal.set_exit_code(updated_command.cmd.exit_code)
                                 break
                         except Exception:  # noqa: BLE001
                             continue

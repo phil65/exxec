@@ -4,24 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import anyenv
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import (
-    OutputEvent,
-    ProcessCompletedEvent,
-    ProcessErrorEvent,
-    ProcessStartedEvent,
-)
+from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.models import ExecutionResult
-from exxec.parse_output import (
-    get_script_path,
-    parse_command,
-    parse_output,
-    wrap_code,
-)
+from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
 
 
 if TYPE_CHECKING:
@@ -35,6 +25,7 @@ if TYPE_CHECKING:
     from upathtools.filesystems import ModalFS
 
     from exxec.events import ExecutionEvent
+    from exxec.modal_provider.pty_manager import ModalPtyManager
     from exxec.models import Language, ServerInfo
 
 
@@ -72,6 +63,10 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         idle_timeout: int | None = None,
         workdir: str = "/tmp",
         language: Language = "python",
+        cwd: str | None = None,
+        env_vars: dict[str, str] | None = None,
+        inherit_env: bool = False,
+        default_command_timeout: float | None = None,
     ) -> None:
         """Initialize Modal sandbox environment.
 
@@ -89,8 +84,19 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             idle_timeout: Idle timeout in seconds
             workdir: Working directory in sandbox
             language: Programming language to use
+            cwd: Working directory for the sandbox
+            env_vars: Environment variables to set for all executions
+            inherit_env: If True, inherit environment variables from os.environ
+            default_command_timeout: Default timeout for command execution in seconds
         """
-        super().__init__(lifespan_handler=lifespan_handler, dependencies=dependencies)
+        super().__init__(
+            lifespan_handler=lifespan_handler,
+            dependencies=dependencies,
+            cwd=cwd,
+            env_vars=env_vars,
+            inherit_env=inherit_env,
+            default_command_timeout=default_command_timeout,
+        )
         self.app_name = app_name or "anyenv-execution"
         self.image = image
         self.volumes = volumes or {}
@@ -104,6 +110,10 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         self.language: Language = language
         self.app: App | None = None
         self.sandbox: Sandbox | None = None
+        # Modal sandboxes run Linux
+        self._os_type = "Linux"
+        # Cache PTY manager instance
+        self._pty_manager: ModalPtyManager | None = None
 
     def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.
@@ -141,7 +151,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
                     self.image = modal.Image.debian_slim().apt_install("nodejs", "npm")
                 case "typescript":
                     self.image = (
-                        modal.Image.debian_slim()
+                        modal.Image
+                        .debian_slim()
                         .apt_install("nodejs", "npm")
                         .run_commands("npm install -g typescript ts-node")
                     )
@@ -197,6 +208,15 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         return ModalFS(sandbox_id=sandbox.object_id)
 
+    def get_pty_manager(self) -> ModalPtyManager:
+        """Return a ModalPtyManager for interactive terminal sessions."""
+        if self._pty_manager is None:
+            from exxec.modal_provider.pty_manager import ModalPtyManager
+
+            sandbox = self._ensure_initialized()
+            self._pty_manager = ModalPtyManager(sandbox)
+        return self._pty_manager
+
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Modal sandbox."""
         sandbox = self._ensure_initialized()
@@ -208,8 +228,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             # Write script to sandbox using filesystem API
             with await sandbox.open.aio(script_path, "w") as f:
                 await f.write.aio(script_content)
-            command = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*command, timeout=self.timeout)
+            cmd = _get_execution_command(self.language, script_path)
+            process = await sandbox.exec.aio(*cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -240,14 +260,23 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    async def execute_command(self, command: str) -> ExecutionResult:
+    async def execute_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> ExecutionResult:
         """Execute a terminal command in the Modal sandbox."""
         sandbox = self._ensure_initialized()
         cmd, args = parse_command(command)
         start_time = time.time()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
 
         try:
-            process = await sandbox.exec.aio(cmd, *args, timeout=self.timeout)
+            exec_kwargs: dict[str, Any] = {"env": self.get_env()}
+            if effective_timeout is not None:
+                exec_kwargs["timeout"] = int(effective_timeout)
+            process = await sandbox.exec.aio(cmd, *args, **exec_kwargs)
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -277,8 +306,8 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             script_path = get_script_path(self.language)
             with await sandbox.open.aio(script_path, "w") as f:
                 await f.write.aio(script_content)
-            exec_command = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*exec_command, timeout=self.timeout)
+            exec_cmd = _get_execution_command(self.language, script_path)
+            process = await sandbox.exec.aio(*exec_cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
 
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
@@ -300,14 +329,23 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
-    async def stream_command(self, command: str) -> AsyncIterator[ExecutionEvent]:
+    async def stream_command(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+    ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Modal sandbox."""
         sandbox = self._ensure_initialized()
+        effective_timeout = timeout if timeout is not None else self.default_command_timeout
         cmd, args = parse_command(command)
         process_id = f"modal_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            process = await sandbox.exec.aio(cmd, *args, timeout=self.timeout)
+            exec_kwargs: dict[str, Any] = {"env": self.get_env()}
+            if effective_timeout is not None:
+                exec_kwargs["timeout"] = int(effective_timeout)
+            process = await sandbox.exec.aio(cmd, *args, **exec_kwargs)
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")
             async for line in process.stderr:
