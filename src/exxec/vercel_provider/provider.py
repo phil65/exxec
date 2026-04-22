@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import time
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self
 import uuid
 
 from exxec.base import ExecutionEnvironment
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from upathtools.filesystems import VercelFS
-    from vercel.sandbox import AsyncSandbox
+    from vercel.sandbox import AsyncSandbox, Resources
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
@@ -62,7 +62,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         dependencies: list[str] | None = None,
         runtime: VercelRuntime | None = None,
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
-        resources: dict[str, Any] | None = None,
+        resources: Resources | None = None,
         ports: list[int] | None = None,
         language: Language = "python",
         token: str | None = None,

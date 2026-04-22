@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import os
 from typing import TYPE_CHECKING, Literal, Self
 
 
@@ -66,8 +67,6 @@ class ExecutionEnvironment(ABC):
             Merged environment dict if inherit_env=True or env_vars set,
             None otherwise.
         """
-        import os
-
         if not self.env_vars and not self.inherit_env:
             return None
         if self.inherit_env:

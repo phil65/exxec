@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import re
 import shlex
 import time
 from typing import TYPE_CHECKING, Any, Self
 import uuid
 
+import anyenv
 import httpx
 
 from exxec.base import ExecutionEnvironment
@@ -351,7 +351,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
                     if data == "[DONE]":
                         break
                     try:
-                        event_data = json.loads(data)
+                        event_data = anyenv.load_json(data, return_type=dict)
                         if "stdout" in event_data:
                             yield OutputEvent(
                                 process_id=process_id,
@@ -364,12 +364,8 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
                                 data=event_data["stderr"],
                                 stream="stderr",
                             )
-                    except json.JSONDecodeError:
-                        yield OutputEvent(
-                            process_id=process_id,
-                            data=data,
-                            stream="stdout",
-                        )
+                    except anyenv.JsonLoadError:
+                        yield OutputEvent(process_id=process_id, data=data, stream="stdout")
 
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=0)
 
@@ -432,12 +428,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
             payload = {"id": self.session_id, "command": command_to_run}
             headers = {**self._get_headers(), "Accept": "text/event-stream"}
 
-            async with client.stream(
-                "POST",
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
                 if response.status_code == _HTTP_NOT_FOUND:
                     async for event in self._stream_fallback(command, process_id):
                         yield event
@@ -451,7 +442,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
                     if data == "[DONE]":
                         break
                     try:
-                        event_data = json.loads(data)
+                        event_data = anyenv.load_json(data, return_type=dict)
                         if "stdout" in event_data:
                             yield OutputEvent(
                                 process_id=process_id,
@@ -464,7 +455,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
                                 data=event_data["stderr"],
                                 stream="stderr",
                             )
-                    except json.JSONDecodeError:
+                    except anyenv.JsonLoadError:
                         yield OutputEvent(
                             process_id=process_id,
                             data=data,
