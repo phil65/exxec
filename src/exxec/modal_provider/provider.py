@@ -10,6 +10,7 @@ import anyenv
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
 
@@ -122,11 +123,10 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             The sandbox instance.
 
         Raises:
-            RuntimeError: If environment not entered via async context manager.
+            NotInitializedError: If environment not entered via async context manager.
         """
         if self.sandbox is None:
-            msg = "Modal environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("Modal")
         return self.sandbox
 
     async def __aenter__(self) -> Self:

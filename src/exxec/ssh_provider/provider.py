@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import wrap_command
 
@@ -92,11 +93,10 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             The SSH connection.
 
         Raises:
-            RuntimeError: If not connected via async context manager.
+            NotInitializedError: If not connected via async context manager.
         """
         if self.connection is None:
-            msg = "SSH connection not established. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("SSH")
         return self.connection
 
     def _prepend_env_vars(self, command: str) -> str:

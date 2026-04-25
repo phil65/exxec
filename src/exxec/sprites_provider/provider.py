@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_output, wrap_code
 
@@ -116,8 +117,7 @@ class SpritesExecutionEnvironment(ExecutionEnvironment):
     def _ensure_initialized(self) -> Sprite:
         """Ensure the sprite has been created/connected."""
         if self.sprite is None:
-            msg = "Sprites environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("Sprite")
         return self.sprite
 
     async def __aenter__(self) -> Self:

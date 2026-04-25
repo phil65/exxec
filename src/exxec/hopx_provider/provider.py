@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_output, wrap_code
 
@@ -104,8 +105,7 @@ class HopxExecutionEnvironment(ExecutionEnvironment):
     def _ensure_initialized(self) -> AsyncSandbox:
         """Ensure the sandbox has been created."""
         if self.sandbox is None:
-            msg = "Hopx environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("Hopx")
         return self.sandbox
 
     async def __aenter__(self) -> Self:

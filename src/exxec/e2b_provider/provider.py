@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_output, wrap_code
 
@@ -103,8 +104,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
     def _ensure_initialized(self) -> AsyncSandbox:
         """Ensure async context."""
         if self.sandbox is None:
-            msg = "E2B environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("E2B")
         return self.sandbox
 
     async def __aenter__(self) -> Self:

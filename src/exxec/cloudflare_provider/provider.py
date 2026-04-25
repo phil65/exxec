@@ -14,6 +14,7 @@ import httpx
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_output, wrap_code
 
@@ -143,8 +144,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
     def _ensure_client(self) -> httpx.AsyncClient:
         """Ensure the HTTP client is initialized."""
         if self._client is None:
-            msg = "Cloudflare environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("CloudFlare")
         return self._client
 
     async def _post(self, path: str, *, payload: dict[str, Any] | None = None) -> dict[str, Any]:
