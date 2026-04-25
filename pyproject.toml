@@ -34,7 +34,7 @@ dependencies = [
   "pydantic",
   "schemez",
   # Only add below (Copier)
-  "upathtools>=1.9.0",
+  "upathtools>=1.20.4",
 ]
 
 [project.urls]
