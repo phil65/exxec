@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
-from exxec.parse_output import parse_command
 
 
 if TYPE_CHECKING:
@@ -17,11 +17,30 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from microsandbox import NodeSandbox, PythonSandbox  # type: ignore[import-untyped]
+    from microsandbox import Sandbox
     from upathtools.filesystems import MicrosandboxFS
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+
+
+def _get_env_prefix(env_vars: dict[str, str]) -> str:
+    """Get environment variable prefix for commands."""
+    if not env_vars:
+        return ""
+    exports = " ".join(f"{k}={v!r}" for k, v in env_vars.items())
+    return f"env {exports} "
+
+
+def _inject_env_vars_to_code(env_vars: dict[str, str], code: str) -> str:
+    """Inject environment variables into Python code."""
+    if not env_vars:
+        return code
+    # Prepend os.environ updates
+    env_setup = "import os\n"
+    for key, value in env_vars.items():
+        env_setup += f"os.environ[{key!r}] = {value!r}\n"
+    return env_setup + code
 
 
 class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
@@ -31,7 +50,6 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        server_url: str | None = None,
         namespace: str = "default",
         api_key: str | None = None,
         memory: int = 512,
@@ -49,7 +67,6 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         Args:
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of packages to install via pip / npm
-            server_url: Microsandbox server URL (defaults to MSB_SERVER_URL env var)
             namespace: Sandbox namespace
             api_key: API key for authentication (uses MSB_API_KEY env var if None)
             memory: Memory limit in MB
@@ -70,7 +87,6 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
             inherit_env=inherit_env,
             default_command_timeout=default_command_timeout,
         )
-        self.server_url = server_url
         self.namespace = namespace
         self.api_key = api_key
         self.memory = memory
@@ -78,69 +94,38 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         self.timeout = timeout
         self.language = language
         self.image = image
-        self.sandbox: PythonSandbox | NodeSandbox | None = None
+        self.sandbox: Sandbox | None = None
         # Microsandbox runs Linux containers
         self._os_type = "Linux"
 
-    def _get_env_prefix(self) -> str:
-        """Get environment variable prefix for commands."""
-        env = self.get_env()
-        if not env:
-            return ""
-        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
-        return f"env {exports} "
-
-    def _inject_env_vars_to_code(self, code: str) -> str:
-        """Inject environment variables into Python code."""
-        env = self.get_env()
-        if not env or self.language != "python":
-            return code
-        # Prepend os.environ updates
-        env_setup = "import os\n"
-        for key, value in env.items():
-            env_setup += f"os.environ[{key!r}] = {value!r}\n"
-        return env_setup + code
-
-    def _ensure_initialized(self) -> PythonSandbox | NodeSandbox:
+    def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.
 
         Returns:
             The sandbox instance.
 
         Raises:
-            RuntimeError: If environment not entered via async context manager.
+            NotInitializedError: If environment not entered via async context manager.
         """
         if self.sandbox is None:
-            msg = "Microsandbox environment not initialized. Use 'async with' context manager."
-            raise RuntimeError(msg)
+            raise NotInitializedError("Microsandbox")
         return self.sandbox
 
     async def __aenter__(self) -> Self:
         """Setup Microsandbox environment."""
         # Start tool server via base class
+        from microsandbox import Sandbox
+
         await super().__aenter__()
-        from microsandbox import NodeSandbox, PythonSandbox
-
-        match self.language:
-            case "python":
-                sandbox_class = PythonSandbox
-            case "javascript" | "typescript":
-                sandbox_class = NodeSandbox
-            case _:
-                sandbox_class = PythonSandbox
-        # Create sandbox with context manager
-        self.sandbox = await sandbox_class.create(
-            server_url=self.server_url,  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-            namespace=self.namespace,
-            api_key=self.api_key,
-        ).__aenter__()
-
+        self.sandbox = await Sandbox.create(name_or_config=self.namespace, image=self.image)
+        assert self.sandbox
+        # await self.sandbox.start()
         # Configure sandbox resources if needed
         # Note: Microsandbox handles resource config during start()
         # which is already called by the context manager
         if self.dependencies and self.language == "python":
             deps_str = " ".join(self.dependencies)
-            install_result = await self.sandbox.command.run(f"pip install {deps_str}")
+            install_result = await self.sandbox.shell(f"pip install {deps_str}")
             if install_result.exit_code != 0:
                 # Log warning but don't fail - code might still work
                 pass
@@ -173,12 +158,12 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         start_time = time.time()
         try:
             # Inject environment variables into code for Python
-            code_with_env = self._inject_env_vars_to_code(code)
-            execution = await sandbox.run(code_with_env)
-            stdout = await execution.output()
-            stderr = await execution.error()
-            success = not execution.has_error()
-            if success:
+            if self.language == "python":
+                code = _inject_env_vars_to_code(self.get_env() or {}, code)
+            execution = await sandbox.exec("python", ["-c", code])
+            stdout = execution.stdout_text
+            stderr = execution.stderr_text
+            if execution.success:
                 return ExecutionResult(
                     result=stdout if stdout else None,
                     duration=time.time() - start_time,
@@ -210,17 +195,16 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
         # Prepend environment variables and wrap with timeout if set
-        env_prefix = self._get_env_prefix()
+        env_prefix = _get_env_prefix(self.get_env() or {})
         if effective_timeout is not None:
             full_command = f"{env_prefix}timeout {effective_timeout} {command}"
         else:
             full_command = env_prefix + command
-        cmd, args = parse_command(full_command)
         start_time = time.time()
         try:
-            execution = await sandbox.command.run(cmd, args)
-            stdout = await execution.output()
-            stderr = await execution.error()
+            execution = await sandbox.shell(full_command)
+            stdout = execution.stdout_text
+            stderr = execution.stderr_text
             # Exit code 124 indicates timeout
             if execution.exit_code == 124:  # noqa: PLR2004
                 return ExecutionResult(
