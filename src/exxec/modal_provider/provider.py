@@ -226,8 +226,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             script_content = wrap_code(code, language=self.language)
             script_path = get_script_path(self.language)
             # Write script to sandbox using filesystem API
-            with await sandbox.open.aio(script_path, "w") as f:
-                await f.write.aio(script_content)
+            await sandbox.filesystem.write_text.aio(script_content, script_path)
             cmd = _get_execution_command(self.language, script_path)
             process = await sandbox.exec.aio(*cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
             await process.wait.aio()
@@ -304,8 +303,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         try:
             script_content = wrap_code(code, language=self.language)
             script_path = get_script_path(self.language)
-            with await sandbox.open.aio(script_path, "w") as f:
-                await f.write.aio(script_content)
+            await sandbox.filesystem.write_text.aio(script_content, script_path)
             exec_cmd = _get_execution_command(self.language, script_path)
             process = await sandbox.exec.aio(*exec_cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
 
