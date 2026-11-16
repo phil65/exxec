@@ -30,7 +30,7 @@ from exxec.sprites_provider import SpritesExecutionEnvironment, SpritesPtyManage
 from exxec.srt_provider import SRTExecutionEnvironment
 from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
 from exxec.modal_provider import ModalExecutionEnvironment, ModalPtyManager
-from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment, VercelRuntime
+from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment
 from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
 
@@ -43,6 +43,8 @@ if TYPE_CHECKING:
     from exxec_config.srt_sandbox_config import SandboxConfig
     from exxec_config import ExecutionEnvironmentStr
     from contextlib import AbstractAsyncContextManager
+
+    from vercel.sandbox import SandboxResources
 
     from exxec.models import Language
 
@@ -149,9 +151,9 @@ def get_environment(
     provider: Literal["vercel"],
     *,
     lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
-    runtime: VercelRuntime | None = None,
+    image: str | None = None,
     timeout: int = DEFAULT_TIMEOUT_SECONDS,
-    resources: dict[str, Any] | None = None,
+    resources: SandboxResources | None = None,
     ports: list[int] | None = None,
     language: Language = "python",
     token: str | None = None,
@@ -305,8 +307,8 @@ def get_environment(  # noqa: PLR0911
         # Beam with custom resources
         env = get_environment("beam", cpu=2.0, memory=512, timeout=600.0)
 
-        # Vercel with custom runtime
-        env = get_environment("vercel", runtime="node22", timeout=600.0)
+        # Vercel with custom timeout
+        env = get_environment("vercel", timeout=600)
 
         # Microsandbox with custom resources
         env = get_environment("microsandbox", memory=1024, cpus=2.0, language="javascript")
@@ -388,7 +390,6 @@ __all__ = [
     "SshExecutionEnvironment",
     "SshPtyManager",
     "VercelExecutionEnvironment",
-    "VercelRuntime",
     # Utilities
     "create_remote_callable",
     "get_environment",

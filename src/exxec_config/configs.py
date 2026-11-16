@@ -51,10 +51,6 @@ if TYPE_CHECKING:
 
 Language = Literal["python", "javascript", "typescript"]
 
-VercelRuntime = Literal[
-    "node22", "python3.13", "v0-next-shadcn", "cua-ubuntu-xfce", "walleye-python"
-]
-
 
 class BaseExecutionEnvironmentConfig(Schema):
     """Base execution environment configuration."""
@@ -801,11 +797,14 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["vercel"] = Field("vercel", init=False)
 
-    runtime: VercelRuntime | None = Field(default=None, title="Runtime")
-    """Vercel runtime to use."""
+    image: str | None = Field(default=None, title="Image")
+    """Vercel Container Registry image reference (uses Vercel default if None)."""
 
-    resources: dict[str, int | str] | None = Field(default=None, title="Resources")
-    """Resource configuration for the sandbox."""
+    vcpus: int | None = Field(default=None, title="vCPUs")
+    """Number of virtual CPUs for the sandbox."""
+
+    memory: int | None = Field(default=None, title="Memory")
+    """Memory in MB for the sandbox."""
 
     ports: list[int] = Field(default=[3000], title="Ports")
     """List of ports to expose."""
@@ -833,16 +832,20 @@ class VercelExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         self, lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None
     ) -> VercelExecutionEnvironment:
         """Create Vercel execution environment instance."""
+        from vercel.sandbox import SandboxResources
+
         from exxec.vercel_provider import VercelExecutionEnvironment
 
         token_str = self.token.get_secret_value() if self.token else None
         return VercelExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            runtime=self.runtime,
+            image=self.image,
             default_command_timeout=self.default_command_timeout,
             timeout=self.timeout,
-            resources=self.resources,
+            resources=SandboxResources(vcpus=self.vcpus, memory=self.memory)
+            if self.vcpus is not None or self.memory is not None
+            else None,
             ports=self.ports,
             language=self.language,
             token=token_str,

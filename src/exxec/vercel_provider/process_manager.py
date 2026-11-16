@@ -16,7 +16,7 @@ from exxec.log import get_logger
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from vercel.sandbox import AsyncCommand, AsyncSandbox
+    from vercel.sandbox import Command, Sandbox
 
 
 logger = get_logger(__name__)
@@ -27,7 +27,7 @@ class VercelTerminal(BaseTerminal):
     """Terminal implementation for Vercel provider."""
 
     command_id: str | None = None
-    _command: AsyncCommand | None = None
+    _command: Command | None = None
     _task: asyncio.Task[None] | None = None
 
     def is_running(self) -> bool:
@@ -45,7 +45,7 @@ class VercelTerminal(BaseTerminal):
 class VercelTerminalManager(ProcessManagerProtocol):
     """Terminal manager that uses Vercel's detached command execution."""
 
-    def __init__(self, sandbox: AsyncSandbox) -> None:
+    def __init__(self, sandbox: Sandbox) -> None:
         """Initialize with a Vercel sandbox instance."""
         self.sandbox = sandbox
         self._terminals: dict[str, VercelTerminal] = {}
@@ -72,15 +72,12 @@ class VercelTerminalManager(ProcessManagerProtocol):
             output_limit=output_limit or 1048576,
         )
 
-        # Construct full command
-        full_command = [command, *args]
-        cmd = " ".join(full_command)
-
+        cmd = " ".join([command, *args])
         try:
             cwd = str(cwd) if cwd else None
-            detached_cmd = await self.sandbox.run_command_detached(cmd, cwd=cwd, env=env)
+            detached_cmd = await self.sandbox.create_command(command, args, cwd=cwd, env=env)
             terminal._command = detached_cmd
-            terminal.command_id = getattr(detached_cmd, "id", None)
+            terminal.command_id = detached_cmd.id
             self._terminals[terminal_id] = terminal
             task = asyncio.create_task(self._collect_output(terminal))
             terminal._task = task
@@ -97,17 +94,15 @@ class VercelTerminalManager(ProcessManagerProtocol):
     async def _collect_output(self, terminal: VercelTerminal) -> None:
         """Collect output from Vercel command."""
         try:
-            if terminal._command:
+            if command := terminal._command:
                 # Collect stdout
-                if stdout := await terminal._command.stdout():
-                    terminal.add_output(stdout)
+                if command.stdout and (stdout := await command.stdout.read()):
+                    terminal.add_output(stdout.decode())
                 # Collect stderr
-                if stderr := await terminal._command.stderr():
-                    terminal.add_output(f"STDERR: {stderr}")
+                if command.stderr and (stderr := await command.stderr.read()):
+                    terminal.add_output(f"STDERR: {stderr.decode()}")
 
-                exit_code = terminal._command.cmd.exit_code
-                if exit_code is not None:
-                    terminal.set_exit_code(exit_code)
+                terminal.set_exit_code(await command.wait())
 
         except Exception as e:
             logger.exception("Error collecting output for %s", terminal.terminal_id)
@@ -124,16 +119,9 @@ class VercelTerminalManager(ProcessManagerProtocol):
         # Try to update status if command exists
         if terminal._command and terminal.is_running():
             try:
-                # Check if command has finished by trying to get it again
-                assert terminal.command_id
-                updated_command = await self.sandbox.get_command(terminal.command_id)
-                if updated_command.cmd.exit_code is not None:
-                    # Command finished, collect final output
-                    if await updated_command.stdout():
-                        terminal.add_output(await updated_command.stdout())
-                    if await updated_command.stderr():
-                        terminal.add_output(f"STDERR: {await updated_command.stderr()}")
-                    terminal.set_exit_code(updated_command.cmd.exit_code)
+                await terminal._command.refresh()
+                if terminal._command.returncode is not None:
+                    terminal.set_exit_code(terminal._command.returncode)
             except Exception:  # noqa: BLE001
                 pass  # Best effort
 
@@ -151,20 +139,7 @@ class VercelTerminalManager(ProcessManagerProtocol):
         cmd = terminal._command
         try:
             if cmd and terminal.is_running():
-                # Poll for completion
-                while terminal.is_running():
-                    await asyncio.sleep(0.5)
-                    if terminal.command_id:
-                        try:
-                            updated_command = await self.sandbox.get_command(terminal.command_id)
-                            if updated_command.cmd.exit_code is not None:
-                                terminal.set_exit_code(updated_command.cmd.exit_code)
-                                break
-                        except Exception:  # noqa: BLE001
-                            continue
-
-                result = await cmd.wait()
-                terminal.set_exit_code(result.exit_code)
+                terminal.set_exit_code(await cmd.wait())
 
         except Exception:
             logger.exception("Error waiting for process %s", process_id)
@@ -179,12 +154,10 @@ class VercelTerminalManager(ProcessManagerProtocol):
             raise ValueError(msg)
 
         terminal = self._terminals[process_id]
-        # Vercel doesn't appear to have a direct kill command
-        # We'll mark it as killed with SIGINT exit code
-        if terminal.is_running():
-            terminal.set_exit_code(130)  # SIGINT exit code
-            msg = "Killed Vercel process %s (no direct kill support)"
-            logger.info(msg, process_id)
+        if terminal._command and terminal.is_running():
+            await terminal._command.kill()
+            terminal.set_exit_code(137)  # SIGKILL exit code
+            logger.info("Killed Vercel process %s", process_id)
 
     async def release_process(self, process_id: str) -> None:
         """Release process resources."""

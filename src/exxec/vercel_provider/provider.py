@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import contextlib
+import subprocess
 import time
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Self
 import uuid
 
 from exxec.base import ExecutionEnvironment
@@ -14,18 +15,8 @@ from exxec.models import ExecutionResult
 from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
 
 
-# Vercel runtime options based on the API error message
-VercelRuntime = Literal[
-    "node22",
-    "python3.13",
-    "v0-next-shadcn",
-    "cua-ubuntu-xfce",
-    "walleye-python",
-]
-
-# Vercel API minimum timeout requirement (1 second in milliseconds)
-MIN_TIMEOUT_MILLISECONDS = 1000
-# Default timeout in seconds (1 minute, converted to milliseconds for API)
+# Vercel API minimum timeout requirement
+MIN_TIMEOUT_SECONDS = 1
 DEFAULT_TIMEOUT_SECONDS = 60
 
 
@@ -35,23 +26,17 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from upathtools.filesystems import VercelFS
-    from vercel.sandbox import AsyncSandbox, Resources
+    from vercel.sandbox import (
+        ByteReader,
+        CreateSandboxOperation,
+        Sandbox,
+        SandboxClient,
+        SandboxCredentials,
+        SandboxResources,
+    )
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
-
-
-def _get_default_runtime(language: Language) -> VercelRuntime:
-    """Get default runtime based on language."""
-    match language:
-        case "python":
-            return "python3.13"
-        case "javascript":
-            return "node22"
-        case "typescript":
-            return "node22"
-        case _:
-            return "python3.13"
 
 
 class VercelExecutionEnvironment(ExecutionEnvironment):
@@ -61,9 +46,9 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        runtime: VercelRuntime | None = None,
+        image: str | None = None,
         timeout: int = DEFAULT_TIMEOUT_SECONDS,
-        resources: Resources | None = None,
+        resources: SandboxResources | None = None,
         ports: list[int] | None = None,
         language: Language = "python",
         token: str | None = None,
@@ -79,9 +64,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         Args:
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of packages to install via pip / npm
-            runtime: Vercel runtime to use (allowed: node22, python3.13,
-                v0-next-shadcn, cua-ubuntu-xfce, walleye-python)
-            timeout: Sandbox timeout in seconds (minimum 1)
+            image: Vercel Container Registry image reference (uses Vercel default if None)
+            timeout: Sandbox execution time limit in seconds (minimum 1)
             resources: Resource configuration for the sandbox
             ports: List of ports to expose
             language: Programming language to use
@@ -101,13 +85,11 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
             inherit_env=inherit_env,
             default_command_timeout=default_command_timeout,
         )
-        self.runtime = runtime
-        # Convert timeout from seconds to milliseconds for Vercel API
-        self.timeout_ms = timeout * 1000
-        # Validate timeout meets Vercel's minimum requirement (1 second = 1000ms)
-        if self.timeout_ms < MIN_TIMEOUT_MILLISECONDS:
+        self.image = image
+        if timeout < MIN_TIMEOUT_SECONDS:
             error_msg = f"Vercel requires timeout >= 1 second, got {timeout} seconds"
             raise ValueError(error_msg)
+        self.timeout = timeout
 
         self.resources = resources
         self.ports = ports or [3000]
@@ -117,9 +99,11 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         self.token = token
         self.project_id = project_id
         self.team_id = team_id
-        self.sandbox: AsyncSandbox | None = None
+        self.sandbox: Sandbox | None = None
+        self._client: SandboxClient | None = None
+        self._create_operation: CreateSandboxOperation | None = None
 
-    def _ensure_initialized(self) -> AsyncSandbox:
+    def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.
 
         Returns:
@@ -134,26 +118,29 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
 
     async def __aenter__(self) -> Self:
         """Setup Vercel sandbox."""
-        # Start tool server via base class
-        from vercel.sandbox import AsyncSandbox
+        from vercel.sandbox import SandboxClient, SandboxServiceOptions
 
+        # Start tool server via base class
         await super().__aenter__()
-        self.sandbox = await AsyncSandbox.create(
-            runtime=self.runtime or _get_default_runtime(self.language),
-            timeout=self.timeout_ms,
-            resources=self.resources,
+        if self.token and self.project_id and self.team_id:
+            options = SandboxServiceOptions(credentials_factory=self._get_credentials)
+            self._client = SandboxClient.create(options=options)
+        else:
+            self._client = SandboxClient.create()
+        self._create_operation = self._client.create_sandbox(
+            image=self.image,
             ports=self.ports,
-            token=self.token,
-            project_id=self.project_id,
-            team_id=self.team_id,
+            execution_time_limit=self.timeout,
+            resources=self.resources,
         )
+        self.sandbox = await self._create_operation.__aenter__()
 
         # Install Python dependencies if specified
         if self.dependencies and self.language == "python":
             try:
                 args = ["install", *self.dependencies]
                 install_result = await self.sandbox.run_command("pip", args)
-                if install_result.exit_code != 0:
+                if install_result.returncode != 0:
                     # Log warning but don't fail - code might still work
                     pass
             except Exception:  # noqa: BLE001
@@ -169,23 +156,47 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         exc_tb: TracebackType | None,
     ) -> None:
         """Cleanup sandbox."""
-        if self.sandbox:
+        if self._create_operation:
             with contextlib.suppress(Exception):
-                await self.sandbox.stop()
+                await self._create_operation.__aexit__(exc_type, exc_val, exc_tb)
+            self._create_operation = None
+            self.sandbox = None
+        if self._client:
+            await self._client.aclose()
+            self._client = None
 
         await super().__aexit__(exc_type, exc_val, exc_tb)
+
+    async def _get_credentials(self) -> SandboxCredentials:
+        from vercel.sandbox import SandboxCredentials
+
+        assert self.token
+        assert self.project_id
+        assert self.team_id
+        return SandboxCredentials(
+            token=self.token, project_id=self.project_id, team_id=self.team_id
+        )
 
     async def get_domain(self, port: int) -> str:
         """Get domain for the Vercel sandbox."""
         sandbox = self._ensure_initialized()
-        return sandbox.domain(port)
+        for route in sandbox.routes:
+            if route.port == port:
+                return route.url
+        msg = f"No route exposed for port {port}"
+        raise ValueError(msg)
 
     def get_fs(self) -> VercelFS:
         """Return a VercelFS instance for the sandbox."""
         from upathtools.filesystems import VercelFS
 
         sandbox = self._ensure_initialized()
-        return VercelFS(sandbox=sandbox)
+        return VercelFS(
+            sandbox_name=sandbox.name,
+            token=self.token,
+            project_id=self.project_id,
+            team_id=self.team_id,
+        )
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Vercel sandbox."""
@@ -193,19 +204,19 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         start_time = time.time()
         try:
             script_path, wrapped_code = self._prepare_code_execution(code)
-            await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
+            await sandbox.fs.write_text(script_path, wrapped_code)
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command(cmd, args, env=self.get_env())
-            stdout = await result.stdout()
-            stderr = await result.stderr()
+            result = await sandbox.run_command(cmd, args, env=self.get_env(), capture_output=True)
+            stdout = (result.stdout or b"").decode()
+            stderr = (result.stderr or b"").decode()
             execution_result, error_info = parse_output(stdout)
-            if result.exit_code == 0 and error_info is None:
+            if result.returncode == 0 and error_info is None:
                 return ExecutionResult(
                     result=execution_result,
                     duration=time.time() - start_time,
                     success=True,
                     stdout=stdout,
-                    exit_code=result.exit_code,
+                    exit_code=result.returncode,
                     stderr=stderr,
                 )
 
@@ -214,7 +225,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
                 duration=time.time() - start_time,
                 success=False,
                 error=(error_info or {}).get("error", "Command execution failed"),
-                exit_code=result.exit_code,
+                exit_code=result.returncode,
                 error_type=(error_info or {}).get("type", "ExecutionError"),
                 stdout=stdout,
                 stderr=stderr,
@@ -240,11 +251,13 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         cmd, args = parse_command(wrapped_command)
         start_time = time.time()
         try:
-            result = await sandbox.run_command(cmd, args or None, env=self.get_env())
-            stdout = await result.stdout()
-            stderr = await result.stderr()
+            result = await sandbox.run_command(
+                cmd, args or None, env=self.get_env(), capture_output=True
+            )
+            stdout = (result.stdout or b"").decode()
+            stderr = (result.stderr or b"").decode()
             # Exit code 124 is timeout's exit code when command times out
-            if result.exit_code == 124:  # noqa: PLR2004
+            if result.returncode == 124:  # noqa: PLR2004
                 return ExecutionResult(
                     result=None,
                     duration=time.time() - start_time,
@@ -255,7 +268,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
                     stdout=stdout,
                     stderr=stderr,
                 )
-            success = result.exit_code == 0
+            success = result.returncode == 0
             return ExecutionResult(
                 result=stdout if success else None,
                 duration=time.time() - start_time,
@@ -275,28 +288,26 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         process_id: str | None = None
         try:
             script_path, wrapped_code = self._prepare_code_execution(code)
-            await sandbox.write_files([{"path": script_path, "content": wrapped_code.encode()}])
+            await sandbox.fs.write_text(script_path, wrapped_code)
             cmd, args = self._get_execution_command(script_path)
-            result = await sandbox.run_command_detached(cmd, args, env=self.get_env())
-            process_id = result.cmd_id
+            command = await sandbox.create_command(
+                cmd, args, env=self.get_env(), stderr=subprocess.STDOUT
+            )
+            process_id = command.id
             yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
-            async for log_line in sandbox.client.get_logs(
-                sandbox_id=sandbox.sandbox_id, cmd_id=result.cmd_id
-            ):
-                if log_line.data:
-                    for line in log_line.data.splitlines():
-                        if line.strip():
-                            yield OutputEvent(process_id=process_id, data=line, stream="combined")
+            if command.stdout:
+                async for line in _iter_lines(command.stdout):
+                    yield OutputEvent(process_id=process_id, data=line, stream="combined")
 
-            finished = await result.wait()
-            if finished.exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=finished.exit_code)
+            exit_code = await command.wait()
+            if exit_code == 0:
+                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
             else:
                 yield ProcessErrorEvent(
                     process_id=process_id,
-                    error=f"Process exited with code {finished.exit_code}",
+                    error=f"Process exited with code {exit_code}",
                     error_type="ProcessError",
-                    exit_code=finished.exit_code,
+                    exit_code=exit_code,
                 )
 
         except Exception as e:  # noqa: BLE001
@@ -321,32 +332,30 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         process_id = f"vercel_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:
-            async_cmd = await sandbox.run_command_detached(cmd, args or None, env=self.get_env())
-            async for log_line in sandbox.client.get_logs(
-                sandbox_id=sandbox.sandbox_id, cmd_id=async_cmd.cmd_id
-            ):
-                if log_line.data:
-                    for line in log_line.data.splitlines():
-                        if line.strip():
-                            yield OutputEvent(process_id=process_id, data=line, stream="combined")
+            async_cmd = await sandbox.create_command(
+                cmd, args or None, env=self.get_env(), stderr=subprocess.STDOUT
+            )
+            if async_cmd.stdout:
+                async for line in _iter_lines(async_cmd.stdout):
+                    yield OutputEvent(process_id=process_id, data=line, stream="combined")
 
-            finished = await async_cmd.wait()
+            exit_code = await async_cmd.wait()
             # Exit code 124 is timeout's exit code when command times out
-            if finished.exit_code == 124:  # noqa: PLR2004
+            if exit_code == 124:  # noqa: PLR2004
                 yield ProcessErrorEvent(
                     process_id=process_id,
                     error=f"Command timed out after {effective_timeout} seconds",
                     error_type="TimeoutError",
-                    exit_code=finished.exit_code,
+                    exit_code=exit_code,
                 )
-            elif finished.exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=finished.exit_code)
+            elif exit_code == 0:
+                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
             else:
                 yield ProcessErrorEvent(
                     process_id=process_id,
-                    error=f"Command exited with code {finished.exit_code}",
+                    error=f"Command exited with code {exit_code}",
                     error_type="CommandError",
-                    exit_code=finished.exit_code,
+                    exit_code=exit_code,
                 )
 
         except Exception as e:  # noqa: BLE001
@@ -358,30 +367,26 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         wrapped_code = wrap_code(code, self.language)
         return script_path, wrapped_code
 
-    def _get_execution_command(self, script_path: str) -> tuple[str, list[str]]:  # noqa: PLR0911
-        """Get execution command based on language and runtime.
+    def _get_execution_command(self, script_path: str) -> tuple[str, list[str]]:
+        """Get execution command based on language.
 
         Returns:
             Tuple of (cmd, args) where cmd is the executable and args is the arg list.
         """
-        runtime = self.runtime or _get_default_runtime(self.language)
         match self.language:
-            case "python":
-                if runtime == "python3.13":
-                    return ("python3", [script_path])
-                if runtime == "walleye-python":
-                    return ("python", [script_path])
-                return ("python3", [script_path])
             case "javascript":
                 return ("node", [script_path])
             case "typescript":
                 return ("npx", ["ts-node", script_path])
             case _:
-                if runtime == "python3.13":
-                    return ("python3", [script_path])
-                if runtime == "walleye-python":
-                    return ("python", [script_path])
                 return ("python3", [script_path])
+
+
+async def _iter_lines(reader: ByteReader) -> AsyncIterator[str]:
+    """Yield non-empty decoded lines from a Vercel command output reader."""
+    while line := await reader.readline():
+        if (text := line.decode().rstrip("\r\n")).strip():
+            yield text
 
 
 if __name__ == "__main__":

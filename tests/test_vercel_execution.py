@@ -116,7 +116,7 @@ async def main():
 
         assert result.success is True
         assert result.result == "Custom config test"
-        assert env.timeout_ms == 600 * 1000  # timeout is stored in milliseconds
+        assert env.timeout == 600  # noqa: PLR2004
 
 
 @pytest.mark.integration
@@ -172,7 +172,7 @@ async def test_vercel_execution_javascript():
     """Test vercel execution with JavaScript language."""
     code = """console.log("Hello from JavaScript!");"""
 
-    async with VercelExecutionEnvironment(language="javascript", runtime="node22") as env:
+    async with VercelExecutionEnvironment(language="javascript") as env:
         result = await env.execute(code)
 
     # Note: This test may need adjustment based on how Vercel handles JS execution
