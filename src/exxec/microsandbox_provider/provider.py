@@ -117,7 +117,7 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         from microsandbox import Sandbox
 
         await super().__aenter__()
-        self.sandbox = await Sandbox.create(name_or_config=self.namespace, image=self.image)
+        self.sandbox = await Sandbox.create(self.namespace, image=self.image)
         assert self.sandbox
         # await self.sandbox.start()
         # Configure sandbox resources if needed
