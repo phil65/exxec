@@ -16,7 +16,7 @@ from exxec.pty_manager import BasePtyManager, PtyInfo, PtySize
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from e2b import AsyncSandbox  # type: ignore[import-untyped]
+    from e2b import AsyncSandbox
 
 
 @dataclass

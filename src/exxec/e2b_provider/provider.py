@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    from e2b import AsyncSandbox  # type: ignore[import-untyped]
+    from e2b import AsyncSandbox
     from upathtools.filesystems import E2BFS
 
     from exxec.e2b_provider.pty_manager import E2BPtyManager
@@ -159,7 +159,7 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
     async def get_domain(self, port: int) -> str:
         """Return the domain name for the sandbox."""
         sandbox = self._ensure_initialized()
-        return sandbox.get_host(port)  # type: ignore[no-any-return]
+        return sandbox.get_host(port)
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the E2B sandbox."""

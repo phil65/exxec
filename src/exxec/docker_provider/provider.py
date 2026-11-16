@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from fsspec.implementations.dirfs import DirFileSystem  # type: ignore[import-untyped]
-    from testcontainers.core.container import DockerContainer  # type: ignore[import-untyped]
+    from testcontainers.core.container import DockerContainer
 
     from exxec.docker_provider.pty_manager import DockerPtyManager
     from exxec.events import ExecutionEvent

@@ -16,10 +16,8 @@ from exxec.log import get_logger
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from e2b import AsyncSandbox  # type: ignore[import-untyped]
-    from e2b.sandbox_async.commands.command_handle import (  # type: ignore[import-untyped]
-        AsyncCommandHandle,
-    )
+    from e2b import AsyncSandbox
+    from e2b.sandbox_async.commands.command_handle import AsyncCommandHandle
 
 
 logger = get_logger(__name__)
