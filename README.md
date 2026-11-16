@@ -71,12 +71,7 @@ env = get_environment("local", timeout=30.0)
 Executes code in Docker containers for strong isolation and reproducible environments.
 
 ```python
-env = get_environment(
-    "docker",
-    image="python:3.13-slim",
-    timeout=60.0,
-    language="python"
-)
+env = get_environment("docker", image="python:3.13-slim", timeout=60.0, language="python")
 ```
 
 **Parameters:**
@@ -95,7 +90,7 @@ env = get_environment(
     api_url="https://api.daytona.io",
     api_key="your-api-key",
     timeout=300.0,
-    keep_alive=False
+    keep_alive=False,
 )
 ```
 
@@ -112,13 +107,7 @@ env = get_environment(
 Executes code in E2B sandboxes for secure, ephemeral execution environments.
 
 ```python
-env = get_environment(
-    "e2b",
-    template="python",
-    timeout=300.0,
-    keep_alive=False,
-    language="python"
-)
+env = get_environment("e2b", template="python", timeout=300.0, keep_alive=False, language="python")
 ```
 
 **Parameters:**
@@ -133,12 +122,7 @@ Executes code in Beam cloud sandboxes for scalable, serverless execution environ
 
 ```python
 env = get_environment(
-    "beam",
-    cpu=1.0,
-    memory=128,
-    keep_warm_seconds=600,
-    timeout=300.0,
-    language="python"
+    "beam", cpu=1.0, memory=128, keep_warm_seconds=600, timeout=300.0, language="python"
 )
 ```
 
@@ -155,10 +139,7 @@ Executes Python code with Model Context Protocol support for AI integrations.
 
 ```python
 env = get_environment(
-    "mcp",
-    dependencies=["requests", "numpy"],
-    allow_networking=True,
-    timeout=30.0
+    "mcp", dependencies=["requests", "numpy"], allow_networking=True, timeout=30.0
 )
 ```
 
@@ -233,18 +214,10 @@ Each provider supports environment-specific customization:
 
 ```python
 # Docker with custom image and networking
-env = get_environment(
-    "docker",
-    image="tensorflow/tensorflow:latest-py3",
-    timeout=600.0
-)
+env = get_environment("docker", image="tensorflow/tensorflow:latest-py3", timeout=600.0)
 
 # Subprocess with specific Python version
-env = get_environment(
-    "subprocess",
-    executable="/usr/bin/python3.11",
-    timeout=120.0
-)
+env = get_environment("subprocess", executable="/usr/bin/python3.11", timeout=120.0)
 ```
 
 ### Streaming Output
