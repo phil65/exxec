@@ -63,6 +63,7 @@ dev = [
   "devtools",
   "pyreadline3",
   "pytest",
+  "pytest-asyncio>=1.5.0",
   "pytest-cov",
   # Only add below (Copier)
 ]
@@ -111,6 +112,11 @@ strict = true
 check_untyped_defs = true
 exclude = ["venv/", ".venv/", "tests/"]
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# `acp` ships with agentpool, which depends on exxec; it is not an exxec dependency.
+module = ["acp", "acp.*"]
+ignore_missing_imports = true
 
 [tool.pyright]
 venvPath = "."

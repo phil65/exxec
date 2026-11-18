@@ -102,7 +102,7 @@ class ACPProcessManager(ProcessManagerProtocol):
             env=env or {},
             output_byte_limit=output_limit,
         )
-        terminal_id = response.terminal_id
+        terminal_id: str = response.terminal_id
         process_id = terminal_id  # Use terminal_id directly as process_id
         process = ACPRunningProcess(
             process_id=process_id,
