@@ -90,17 +90,26 @@ class ExecutionEnvironment(ABC):
         exc_tb: TracebackType | None,
     ) -> None:
         """Cleanup (stop server, kill process, etc.)."""
+        from exxec.process_manager import BaseProcessManager
+
+        if isinstance(self._process_manager, BaseProcessManager):
+            await self._process_manager.cleanup()
         # Cleanup server if provided
         if self.lifespan_handler:
             await self.lifespan_handler.__aexit__(exc_type, exc_val, exc_tb)
 
     @property
     def process_manager(self) -> ProcessManagerProtocol:
-        """Get the process manager for this execution environment."""
-        if self._process_manager is None:
-            from exxec.process_manager import EnvironmentTerminalManager
+        """Get the process manager for this execution environment.
 
-            self._process_manager = EnvironmentTerminalManager(self)
+        The default implementation runs processes through `stream_command()`,
+        i.e. inside the environment. Providers with a native background-process
+        API (or local execution) override this.
+        """
+        if self._process_manager is None:
+            from exxec.process_manager import StreamingProcessManager
+
+            self._process_manager = StreamingProcessManager(self)
         return self._process_manager
 
     @property
