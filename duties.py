@@ -63,7 +63,7 @@ def lint(ctx):
     """Lint the code and fix issues if possible."""
     ctx.run("uv run ruff check --fix --unsafe-fixes .")
     ctx.run("uv run ruff format .")
-    ctx.run(f"uv run mypy src/{PACKAGE_NAME}/ --fixed-format-cache")
+    ctx.run("uv run mypy src/ --fixed-format-cache")
 
 
 @duty(capture=False)
@@ -71,7 +71,7 @@ def lint_check(ctx):
     """Lint the code."""
     ctx.run("uv run ruff check .")
     ctx.run("uv run ruff format --check .")
-    ctx.run(f"uv run mypy src/{PACKAGE_NAME}/ --fixed-format-cache")
+    ctx.run("uv run mypy src/ --fixed-format-cache")
 
 
 @duty(capture=False)

@@ -44,7 +44,7 @@ jobs:
           args: "format --check"
 
       - name: Static type checking (MyPy)
-        run: uv run --no-group docs mypy src/exxec/
+        run: uv run --no-group docs mypy src/
 
       - name: Run tests
         run: uv run --no-group docs pytest --cov-report=xml --cov=src/exxec/ --cov-report=term-missing

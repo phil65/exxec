@@ -587,24 +587,17 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     type: Literal["microsandbox"] = Field("microsandbox", init=False)
 
-    server_url: str | None = Field(
-        default=None,
-        title="Server URL",
-        examples=["http://localhost:8080"],
-    )
-    """Microsandbox server URL (uses MSB_SERVER_URL env var if None)."""
-
-    namespace: str = Field(default="default", title="Namespace")
-    """Sandbox namespace."""
+    namespace: str = Field(default="exxec", title="Namespace")
+    """Prefix for the sandbox name (a unique suffix is appended)."""
 
     api_key: SecretStr | None = Field(default=None, title="API Key")
     """API key for authentication (uses MSB_API_KEY env var if None)."""
 
-    memory: int = Field(default=512, ge=128, title="Memory (MB)")
-    """Memory limit in MB."""
+    memory: int = Field(default=512, ge=128, title="Memory (MiB)")
+    """Memory limit in MiB."""
 
-    cpus: float = Field(default=1.0, ge=0.1, title="CPU Cores")
-    """CPU limit."""
+    cpus: int = Field(default=1, ge=1, title="Virtual CPUs")
+    """Number of virtual CPUs."""
 
     language: Language = Field(
         default="python",
@@ -638,7 +631,6 @@ class MicrosandboxExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
         return MicrosandboxExecutionEnvironment(
             lifespan_handler=lifespan_handler,
             dependencies=self.dependencies,
-            server_url=self.server_url,
             namespace=self.namespace,
             api_key=api_key_str,
             memory=self.memory,
