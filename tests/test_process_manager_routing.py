@@ -40,6 +40,9 @@ class WrappingLocalEnvironment(LocalExecutionEnvironment):
     def wrap_command(self, command: str) -> str:
         return f"echo WRAPPED && {command}"
 
+    def wrap_argv(self, argv: list[str]) -> list[str]:
+        return ["sh", "-c", 'echo WRAPPED-ARGV && "$@"', "sh", *argv]
+
 
 class RecordingEnvironment(MockExecutionEnvironment):
     """Mock environment recording commands passed to `stream_command`."""
@@ -82,16 +85,36 @@ async def test_remote_env_defaults_to_streaming_process_manager() -> None:
 
 
 @posix_only
-async def test_local_process_applies_wrap_command() -> None:
+async def test_local_shell_process_applies_wrap_command() -> None:
     async with WrappingLocalEnvironment(default_command_timeout=None) as env:
         pm = env.process_manager
-        process_id = await pm.start_process("echo", args=["inner"])
+        process_id = await pm.start_process("echo inner | cat")
         assert await pm.wait_for_exit(process_id) == 0
         output = await pm.get_output(process_id)
         assert output.combined.splitlines() == ["WRAPPED", "inner"]
+
+
+@posix_only
+async def test_local_argv_process_applies_wrap_argv() -> None:
+    async with WrappingLocalEnvironment(default_command_timeout=None) as env:
+        pm = env.process_manager
+        process_id = await pm.start_process("echo", args=["inner arg"])
+        assert await pm.wait_for_exit(process_id) == 0
+        output = await pm.get_output(process_id)
+        assert output.combined.splitlines() == ["WRAPPED-ARGV", "inner arg"]
         info = await pm.get_process_info(process_id)
         assert info["command"] == "echo"
-        assert info["args"] == ["inner"]
+        assert info["args"] == ["inner arg"]
+
+
+async def test_local_argv_process_passes_multiline_args() -> None:
+    async with LocalExecutionEnvironment() as env:
+        pm = env.process_manager
+        script = "import sys\nprint('first')\nprint(sys.argv[1])"
+        process_id = await pm.start_process(sys.executable, args=["-c", script, "a b"])
+        assert await pm.wait_for_exit(process_id) == 0
+        output = await pm.get_output(process_id)
+        assert output.combined.splitlines() == ["first", "a b"]
 
 
 @posix_only
@@ -237,7 +260,6 @@ def test_build_remote_command_line_rejects_invalid_env_names() -> None:
 
 def test_build_command_line_quoting() -> None:
     assert build_command_line("echo", ["a b"]) == "echo 'a b'"
-    assert build_command_line("echo", ["a b"], windows=True) == 'echo "a b"'
     assert build_command_line("echo a | cat", None) == "echo a | cat"
 
 

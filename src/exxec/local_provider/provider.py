@@ -288,6 +288,21 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         """
         return command
 
+    def wrap_argv(self, argv: list[str]) -> list[str]:
+        """Wrap a program invocation (argv form) before direct execution.
+
+        Counterpart of `wrap_command` for processes executed without a shell.
+        Subclasses adding sandboxing must override both.
+        Default implementation returns argv unchanged.
+
+        Args:
+            argv: Program and arguments
+
+        Returns:
+            Wrapped argv
+        """
+        return argv
+
     async def execute_command(
         self,
         command: str,

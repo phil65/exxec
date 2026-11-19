@@ -21,7 +21,6 @@ from dataclasses import dataclass, field
 import os
 import re
 import shlex
-import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
 import uuid
@@ -64,22 +63,17 @@ class TerminalTask(BaseTerminal):
         return self.task is not None and not self.task.done()
 
 
-def build_command_line(command: str, args: list[str] | None, *, windows: bool = False) -> str:
-    """Build a shell command line from a command and optional arguments.
+def build_command_line(command: str, args: list[str] | None) -> str:
+    """Build a POSIX shell command line from a command and optional arguments.
 
     Args:
         command: Program name, or a full shell command string when no args are given
-        args: Arguments, quoted for the target shell when joined
-        windows: Quote for `cmd.exe` / the Windows C runtime instead of a POSIX shell
+        args: Arguments, shell-quoted when joined
 
     Returns:
-        A command line suitable for execution by the target shell
+        A command line suitable for execution by a POSIX shell
     """
-    if not args:
-        return command
-    if windows:
-        return subprocess.list2cmdline([command, *args])
-    return shlex.join([command, *args])
+    return shlex.join([command, *args]) if args else command
 
 
 def build_remote_command_line(
@@ -202,8 +196,11 @@ class BaseProcessManager(ProcessManagerProtocol, ABC):
 class LocalProcessManager(BaseProcessManager):
     """Runs background processes as local subprocesses.
 
-    Commands are passed through the environment's `wrap_command()`, so sandboxing
-    subclasses (like `SRTExecutionEnvironment`) also apply to background processes.
+    With `args`, the program is executed directly (no shell, no quoting issues on
+    any platform) after passing the argv through the environment's `wrap_argv()`.
+    Without `args`, `command` is run as a shell command line after passing it
+    through `wrap_command()`. Both hooks let sandboxing subclasses (like
+    `SRTExecutionEnvironment`) apply to background processes.
     """
 
     def __init__(self, env: LocalExecutionEnvironment) -> None:
@@ -240,22 +237,35 @@ class LocalProcessManager(BaseProcessManager):
         Raises:
             OSError: If the process could not be spawned
         """
-        from anyenv.processes import create_shell_process
+        from anyenv.processes import create_process, create_shell_process
 
         process_id = f"proc_{uuid.uuid4().hex[:8]}"
         args = args or []
         work_dir = str(cwd) if cwd else self.env.cwd
-        command_line = self.env.wrap_command(
-            build_command_line(command, args, windows=sys.platform == "win32")
-        )
-        process = await create_shell_process(
-            command_line,
-            stdout="pipe",
-            stderr="stdout",
-            cwd=work_dir,
-            env=self._build_env(env),
-            start_new_session=sys.platform != "win32",
-        )
+        proc_env = self._build_env(env)
+        new_session = sys.platform != "win32"
+        if args:
+            program, *program_args = self.env.wrap_argv([command, *args])
+            description = shlex.join([program, *program_args])
+            process = await create_process(
+                program,
+                *program_args,
+                stdout="pipe",
+                stderr="stdout",
+                cwd=work_dir,
+                env=proc_env,
+                start_new_session=new_session,
+            )
+        else:
+            description = self.env.wrap_command(command)
+            process = await create_shell_process(
+                description,
+                stdout="pipe",
+                stderr="stdout",
+                cwd=work_dir,
+                env=proc_env,
+                start_new_session=new_session,
+            )
         terminal = TerminalTask(
             terminal_id=process_id,
             command=command,
@@ -267,7 +277,7 @@ class LocalProcessManager(BaseProcessManager):
         )
         terminal.task = asyncio.create_task(self._collect(terminal, process))
         self._terminals[process_id] = terminal
-        logger.info("Started local process %s: %s", process_id, command_line)
+        logger.info("Started local process %s: %s", process_id, description)
         return process_id
 
     async def _collect(self, terminal: TerminalTask, process: asyncio.subprocess.Process) -> None:

@@ -106,3 +106,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
     def wrap_command(self, command: str) -> str:
         """Wrap command with srt sandbox."""
         return shlex.join(["srt", "--settings", str(self._settings_file), command])
+
+    def wrap_argv(self, argv: list[str]) -> list[str]:
+        """Wrap a program invocation with srt sandbox."""
+        return ["srt", "--settings", str(self._settings_file), shlex.join(argv)]
