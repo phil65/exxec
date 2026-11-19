@@ -201,3 +201,15 @@ async def test_terminal_session_in_vm(msb_env: MicrosandboxExecutionEnvironment)
         await term.wait_for(re.compile(r"'(x86_64|aarch64|arm64)'"))
         await term.send_keys("C-d")
         assert await term.wait() == 0
+
+
+async def test_filesystem_uses_the_same_vm(msb_env: MicrosandboxExecutionEnvironment) -> None:
+    fs = msb_env.get_fs()
+    payload = bytes(range(256))
+    await fs._pipe_file("/tmp/exxec-fs/data.bin", payload)
+    assert await fs._cat_file("/tmp/exxec-fs/data.bin") == payload
+    async with await msb_env.spawn(
+        "python",
+        ["-c", "import sys; print(len(open(sys.argv[1], 'rb').read()))", "/tmp/exxec-fs/data.bin"],
+    ) as handle:
+        assert (await read_all(handle)).strip() == b"256"
