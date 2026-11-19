@@ -16,7 +16,7 @@ from exxec.parse_output import parse_output, wrap_python_code
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
@@ -151,8 +151,9 @@ class DaytonaExecutionEnvironment(ExecutionEnvironment):
             with contextlib.suppress(Exception):
                 await self.sandbox.stop()
                 await self.sandbox.delete()
-        # Closes the HTTP sessions (unannotated upstream).
-        await self.daytona.close()  # type: ignore[no-untyped-call]
+        # Closes the HTTP sessions. Typed alias: `close` is unannotated upstream.
+        close_client: Callable[[], Awaitable[None]] = self.daytona.close
+        await close_client()
 
     async def _ssh_connection(self) -> SSHClientConnection:
         """Return the SSH connection to the sandbox, creating access on first use."""

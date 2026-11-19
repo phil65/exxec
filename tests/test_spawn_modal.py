@@ -20,6 +20,11 @@ from exxec import LocalExecutionEnvironment
 from exxec.pty_manager import PtySize
 
 
+if sys.platform == "win32":
+    # Importing modal on Windows switches the global event loop policy to the
+    # selector loop (no subprocess support), which would break other tests.
+    pytest.skip("requires POSIX shell and PTYs", allow_module_level=True)
+
 pytest.importorskip("modal")
 
 from exxec.modal_provider.process_handle import ModalProcessHandle
@@ -33,7 +38,6 @@ if TYPE_CHECKING:
     from exxec.process_handle import ProcessHandle
 
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="requires POSIX shell and PTYs")
 PY = sys.executable
 
 

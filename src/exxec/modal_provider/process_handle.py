@@ -10,6 +10,9 @@ resize. The handle fills those gaps with POSIX tools inside the container:
 - the initial PTY size is applied with `stty` before `exec`, and resizes run
   `stty -F <tty> rows R cols C` via a helper exec, which makes the kernel deliver
   SIGWINCH to the program.
+
+Note: on Windows, importing `modal` switches the global asyncio event loop policy to
+the selector loop (an upstream workaround), which cannot run local subprocesses.
 """
 
 from __future__ import annotations
