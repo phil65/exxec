@@ -178,18 +178,20 @@ class ProcessHandle(ABC):
         await self._resize(size)
         self._pty_size = size
 
-    async def kill(self, *, grace: float = DEFAULT_KILL_GRACE) -> int:
-        """Terminate the process: SIGTERM, then SIGKILL after `grace` seconds.
+    async def kill(self, *, grace: float = DEFAULT_KILL_GRACE, signal: SignalName = "TERM") -> int:
+        """Terminate the process: send `signal`, then SIGKILL after `grace` seconds.
 
         Args:
             grace: Seconds to wait for a graceful exit before force-killing
+            signal: Signal requesting termination; "HUP" suits terminal sessions,
+                since interactive shells ignore SIGTERM but exit on hangup
 
         Returns:
             Exit code (shell convention)
         """
         if self._returncode is not None:
             return self._returncode
-        await self.send_signal("TERM")
+        await self.send_signal(signal)
         try:
             return await asyncio.wait_for(self.wait(), timeout=grace)
         except TimeoutError:
@@ -197,13 +199,17 @@ class ProcessHandle(ABC):
             return await self.wait()
 
     async def aclose(self) -> None:
-        """Kill the process if still running and release all resources."""
+        """Kill the process if still running and release all resources.
+
+        PTY processes are hung up (SIGHUP), pipe processes terminated (SIGTERM);
+        both escalate to SIGKILL after the default grace period.
+        """
         if self._closed:
             return
         self._closed = True
         try:
             if self._returncode is None and not await self._has_exited():
-                await self.kill()
+                await self.kill(signal="HUP" if self.is_pty else "TERM")
         finally:
             await self._release()
 

@@ -64,9 +64,7 @@ class PtyManagerProtocol(Protocol):
     allowing interactive terminal sessions across different execution environments.
 
     Implementations:
-        - LocalPtyManager: Uses ptyprocess for local PTY
-        - SshPtyManager: Uses asyncssh for SSH-based PTY
-        - DockerPtyManager: Uses Docker exec with tty=True
+        - SpawnPtyManager: Any environment with `supports_pty` (local, ssh, docker)
         - E2BPtyManager: Uses E2B sandbox.pty API
         - ModalPtyManager: Uses Modal's PTYInfo
         - DaytonaPtyManager: Uses Daytona's create_pty_session

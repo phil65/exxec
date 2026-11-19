@@ -29,10 +29,8 @@ if TYPE_CHECKING:
     from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
     from exxec.events import ExecutionEvent
-    from exxec.local_provider.pty_manager import LocalPtyManager
     from exxec.models import Language, ServerInfo
     from exxec.process_handle import ProcessHandle
-    from exxec.process_manager import LocalProcessManager
     from exxec.pty_manager import PtySize
 
 
@@ -95,9 +93,6 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.root_path = root_path
         # Local provider knows OS statically
         self._os_type = platform.system()  # type: ignore[assignment]
-        # Cache PTY manager instance
-        self._pty_manager: LocalPtyManager | None = None
-        self._local_process_manager: LocalProcessManager | None = None
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class
@@ -141,28 +136,6 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         if self.root_path:
             return DirFileSystem(self.root_path, fs)
         return fs
-
-    @property
-    def process_manager(self) -> LocalProcessManager:
-        """Get a process manager spawning local subprocesses.
-
-        Commands are passed through `wrap_command()`, so sandboxing subclasses
-        also apply to background processes.
-        """
-        if self._local_process_manager is None:
-            from exxec.process_manager import LocalProcessManager
-
-            self._local_process_manager = LocalProcessManager(self)
-            self._process_manager = self._local_process_manager
-        return self._local_process_manager
-
-    def get_pty_manager(self) -> LocalPtyManager:
-        """Return a LocalPtyManager for interactive terminal sessions."""
-        if self._pty_manager is None:
-            from exxec.local_provider.pty_manager import LocalPtyManager
-
-            self._pty_manager = LocalPtyManager(cwd=self.cwd)
-        return self._pty_manager
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in same process or isolated subprocess."""

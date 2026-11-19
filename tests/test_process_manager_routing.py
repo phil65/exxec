@@ -1,6 +1,6 @@
 """Tests that background processes run in the right environment.
 
-Covers `LocalProcessManager` (command wrapping, cwd, env vars, cleanup) and
+Covers `SpawnProcessManager` (command wrapping, cwd, env vars, cleanup) and
 `StreamingProcessManager` (routing through the environment's `stream_command`).
 """
 
@@ -16,7 +16,7 @@ import pytest
 from exxec import LocalExecutionEnvironment, MockExecutionEnvironment
 from exxec.command_line import build_command_line, build_remote_command_line
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
-from exxec.process_manager import KILLED_EXIT_CODE, LocalProcessManager, StreamingProcessManager
+from exxec.process_manager import KILLED_EXIT_CODE, SpawnProcessManager, StreamingProcessManager
 
 
 if TYPE_CHECKING:
@@ -67,9 +67,9 @@ class RecordingEnvironment(MockExecutionEnvironment):
             self.stream_closed.set()
 
 
-async def test_local_env_uses_local_process_manager() -> None:
+async def test_local_env_uses_spawn_process_manager() -> None:
     async with LocalExecutionEnvironment() as env:
-        assert isinstance(env.process_manager, LocalProcessManager)
+        assert isinstance(env.process_manager, SpawnProcessManager)
 
 
 async def test_remote_env_defaults_to_streaming_process_manager() -> None:

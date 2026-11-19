@@ -279,3 +279,13 @@ async def test_pty_reader_unblocks_on_close() -> None:
         await asyncio.sleep(0.1)
         await handle.aclose()
         await asyncio.wait_for(reader, timeout=5)
+
+
+@posix_only
+async def test_signal_immediately_after_spawn_is_delivered() -> None:
+    async with LocalExecutionEnvironment() as env:
+        for size in (None, PtySize()):
+            handle = await env.spawn(PY, ["-c", "import time; time.sleep(30)"], pty=size)
+            async with handle:
+                await handle.send_signal("HUP")
+                assert await asyncio.wait_for(handle.wait(), timeout=5) == 129  # noqa: PLR2004

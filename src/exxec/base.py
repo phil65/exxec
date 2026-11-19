@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from exxec.models import ExecutionResult, ServerInfo
     from exxec.process_handle import ProcessHandle
     from exxec.pty_manager import PtyManagerProtocol, PtySize
+    from exxec.spawn_pty_manager import SpawnPtyManager
 
 
 OSType = Literal["Windows", "Darwin", "Linux"]
@@ -65,6 +66,7 @@ class ExecutionEnvironment(ABC):
         self.inherit_env = inherit_env
         self.default_command_timeout = default_command_timeout
         self._process_manager: ProcessManagerProtocol | None = None
+        self._spawn_pty_manager: SpawnPtyManager | None = None
         self._os_type: OSType | None = None
 
     def get_env(self) -> dict[str, str] | None:
@@ -101,6 +103,8 @@ class ExecutionEnvironment(ABC):
 
         if isinstance(self._process_manager, BaseProcessManager):
             await self._process_manager.cleanup()
+        if self._spawn_pty_manager is not None:
+            await self._spawn_pty_manager.cleanup()
         # Cleanup server if provided
         if self.lifespan_handler:
             await self.lifespan_handler.__aexit__(exc_type, exc_val, exc_tb)
@@ -109,14 +113,16 @@ class ExecutionEnvironment(ABC):
     def process_manager(self) -> ProcessManagerProtocol:
         """Get the process manager for this execution environment.
 
-        The default implementation runs processes through `stream_command()`,
-        i.e. inside the environment. Providers with a native background-process
-        API (or local execution) override this.
+        Environments with `supports_spawn` get a `SpawnProcessManager`; others fall
+        back to `StreamingProcessManager`, which runs processes through
+        `stream_command()`. Both run processes inside the environment.
         """
         if self._process_manager is None:
-            from exxec.process_manager import StreamingProcessManager
+            from exxec.process_manager import SpawnProcessManager, StreamingProcessManager
 
-            self._process_manager = StreamingProcessManager(self)
+            self._process_manager = (
+                SpawnProcessManager(self) if self.supports_spawn else StreamingProcessManager(self)
+            )
         return self._process_manager
 
     @property
@@ -212,14 +218,23 @@ class ExecutionEnvironment(ABC):
     def get_pty_manager(self) -> PtyManagerProtocol:
         """Return a PTY manager for interactive terminal sessions.
 
+        Environments with `supports_pty` get a `SpawnPtyManager`. Providers with a
+        native PTY API that do not implement `spawn()` yet override this.
+
         Returns:
             A PtyManagerProtocol implementation for this environment.
 
         Raises:
             NotImplementedError: If PTY is not supported by this provider.
         """
-        msg = "PTY is not supported"
-        raise NotImplementedError(msg)
+        if not self.supports_pty:
+            msg = f"{type(self).__name__} does not support PTY sessions"
+            raise NotImplementedError(msg)
+        if self._spawn_pty_manager is None:
+            from exxec.spawn_pty_manager import SpawnPtyManager
+
+            self._spawn_pty_manager = SpawnPtyManager(self)
+        return self._spawn_pty_manager
 
     async def set_file_content(self, path: str, content: str | bytes) -> None:
         """Set file content in the filesystem.

@@ -2,13 +2,12 @@
 
 Two implementations are provided:
 
-- `LocalProcessManager` spawns subprocesses on the local machine. It is used by
-  `LocalExecutionEnvironment` and its subclasses and honours their command
-  wrapping (e.g. the `srt` sandbox), working directory and environment variables.
+- `SpawnProcessManager` runs processes via `ExecutionEnvironment.spawn()`. It is
+  the default for environments with `supports_spawn` (local and its sandboxing
+  subclasses, ssh, docker): no timeout, unbuffered output, real termination.
 - `StreamingProcessManager` runs commands through the environment's own
-  `stream_command()`, so the process runs *inside* the environment (container,
-  remote host, sandbox) instead of on the host. It is the default for all
-  environments that do not provide a dedicated process manager.
+  `stream_command()`, so the process still runs *inside* the environment. It is
+  the fallback for environments without `spawn()`.
 """
 
 from __future__ import annotations
@@ -18,9 +17,6 @@ import asyncio
 import codecs
 import contextlib
 from dataclasses import dataclass, field
-import os
-import shlex
-import sys
 from typing import TYPE_CHECKING, Any
 import uuid
 
@@ -37,7 +33,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from exxec.base import ExecutionEnvironment
-    from exxec.local_provider import LocalExecutionEnvironment
+    from exxec.process_handle import ProcessHandle
 
 
 logger = get_logger(__name__)
@@ -54,7 +50,7 @@ class TerminalTask(BaseTerminal):
     """Tracks a background process and the task collecting its output."""
 
     task: asyncio.Task[None] | None = field(default=None)
-    process: asyncio.subprocess.Process | None = field(default=None)
+    handle: ProcessHandle | None = field(default=None)
 
     def is_running(self) -> bool:
         """Check if the output collection task is still running."""
@@ -143,26 +139,18 @@ class BaseProcessManager(ProcessManagerProtocol, ABC):
             await self.release_process(process_id)
 
 
-class LocalProcessManager(BaseProcessManager):
-    """Runs background processes as local subprocesses.
+class SpawnProcessManager(BaseProcessManager):
+    """Runs background processes via `ExecutionEnvironment.spawn()`.
 
-    With `args`, the program is executed directly (no shell, no quoting issues on
-    any platform) after passing the argv through the environment's `wrap_argv()`.
-    Without `args`, `command` is run as a shell command line after passing it
-    through `wrap_command()`. Both hooks let sandboxing subclasses (like
-    `SRTExecutionEnvironment`) apply to background processes.
+    The default for environments with `supports_spawn`. Processes run inside the
+    environment without any timeout, output is captured as it arrives (no line
+    buffering), and `kill_process` terminates the process for real.
     """
 
-    def __init__(self, env: LocalExecutionEnvironment) -> None:
-        """Initialize with a local execution environment."""
+    def __init__(self, env: ExecutionEnvironment) -> None:
+        """Initialize with an execution environment that supports `spawn()`."""
         super().__init__()
         self.env = env
-
-    def _build_env(self, env: dict[str, str] | None) -> dict[str, str] | None:
-        base = self.env.get_env()
-        if not env:
-            return base
-        return {**(base if base is not None else os.environ), **env}
 
     async def start_process(
         self,
@@ -172,50 +160,22 @@ class LocalProcessManager(BaseProcessManager):
         env: dict[str, str] | None = None,
         output_limit: int | None = None,
     ) -> str:
-        """Start a background process on the local machine.
+        """Start a background process inside the execution environment.
 
         Args:
             command: Program name, or a shell command string when no args are given
             args: Arguments for the program
-            cwd: Working directory (defaults to the environment's cwd)
+            cwd: Working directory (defaults to the environment's)
             env: Additional environment variables
             output_limit: Maximum bytes of output to retain
 
         Returns:
             Process ID for tracking
-
-        Raises:
-            OSError: If the process could not be spawned
         """
-        from anyenv.processes import create_process, create_shell_process
-
         process_id = f"proc_{uuid.uuid4().hex[:8]}"
         args = args or []
-        work_dir = str(cwd) if cwd else self.env.cwd
-        proc_env = self._build_env(env)
-        new_session = sys.platform != "win32"
-        if args:
-            program, *program_args = self.env.wrap_argv([command, *args])
-            description = shlex.join([program, *program_args])
-            process = await create_process(
-                program,
-                *program_args,
-                stdout="pipe",
-                stderr="stdout",
-                cwd=work_dir,
-                env=proc_env,
-                start_new_session=new_session,
-            )
-        else:
-            description = self.env.wrap_command(command)
-            process = await create_shell_process(
-                description,
-                stdout="pipe",
-                stderr="stdout",
-                cwd=work_dir,
-                env=proc_env,
-                start_new_session=new_session,
-            )
+        work_dir = str(cwd) if cwd else None
+        handle = await self.env.spawn(command, args or None, cwd=work_dir, env=env)
         terminal = TerminalTask(
             terminal_id=process_id,
             command=command,
@@ -223,38 +183,33 @@ class LocalProcessManager(BaseProcessManager):
             cwd=work_dir,
             env=env or {},
             output_limit=output_limit or DEFAULT_OUTPUT_LIMIT,
-            process=process,
+            handle=handle,
         )
-        terminal.task = asyncio.create_task(self._collect(terminal, process))
+        terminal.task = asyncio.create_task(self._collect(terminal, handle))
         self._terminals[process_id] = terminal
-        logger.info("Started local process %s: %s", process_id, description)
+        logger.info("Started process %s in %s: %s", process_id, type(self.env).__name__, command)
         return process_id
 
-    async def _collect(self, terminal: TerminalTask, process: asyncio.subprocess.Process) -> None:
-        """Collect output until EOF, then record the exit code.
-
-        Reads in chunks rather than lines so output without trailing newlines
-        (prompts, progress indicators) is captured immediately.
-        """
+    async def _collect(self, terminal: TerminalTask, handle: ProcessHandle) -> None:
+        """Collect output until EOF, then record the exit code and release the handle."""
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         try:
-            if process.stdout is not None:
-                while chunk := await process.stdout.read(8192):
-                    terminal.add_output(decoder.decode(chunk))
-                terminal.add_output(decoder.decode(b"", final=True))
-            terminal.set_exit_code(await process.wait())
+            async for chunk in handle.output():
+                terminal.add_output(decoder.decode(chunk))
+            terminal.add_output(decoder.decode(b"", final=True))
+            terminal.set_exit_code(await handle.wait())
         except asyncio.CancelledError:
             raise
         except Exception as e:
             terminal.add_output(f"Process error: {e}\n")
             terminal.set_exit_code(1)
             logger.exception("Error in process %s", terminal.terminal_id)
+        finally:
+            await handle.aclose()
 
     async def _terminate(self, terminal: TerminalTask) -> None:
-        from anyenv.processes import hard_kill
-
-        if terminal.process is not None:
-            await hard_kill(terminal.process)
+        if terminal.handle is not None:
+            await terminal.handle.kill()
 
 
 class StreamingProcessManager(BaseProcessManager):

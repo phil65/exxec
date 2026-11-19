@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from exxec.models import Language, ServerInfo
     from exxec.process_handle import ProcessHandle
     from exxec.pty_manager import PtySize
-    from exxec.ssh_provider.pty_manager import SshPtyManager
 
 
 class _AsyncClosable(Protocol):
@@ -93,8 +92,6 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         self._connection_cm: _ACMWrapper[SSHClientConnection] | None = None
         self.connection: SSHClientConnection | None = None
         self._remote_work_dir: str | None = None
-        # Cache PTY manager instance
-        self._pty_manager: SshPtyManager | None = None
         self._fs: WrapperFileSystem | None = None
         # The SFTP filesystem uses its own connection; tracked to close it on exit.
         self._sftp_pool: _AsyncClosable | None = None
@@ -269,15 +266,6 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             command, args, cwd or self._remote_work_dir, merged_env or None
         )
         return await SshProcessHandle.start(connection, command_line, size=pty)
-
-    def get_pty_manager(self) -> SshPtyManager:
-        """Return a SshPtyManager for interactive terminal sessions."""
-        if self._pty_manager is None:
-            from exxec.ssh_provider.pty_manager import SshPtyManager
-
-            connection = self._ensure_connected()
-            self._pty_manager = SshPtyManager(connection)
-        return self._pty_manager
 
     async def _verify_tools(self) -> None:
         """Verify that required tools are available on the remote machine."""

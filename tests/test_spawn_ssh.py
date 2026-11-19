@@ -255,3 +255,24 @@ async def test_context_exit_kills_remote_process(ssh_env: SshExecutionEnvironmen
     async with handle:
         pass
     assert handle.returncode == 143  # noqa: PLR2004
+
+
+async def test_process_manager_over_ssh(ssh_env: SshExecutionEnvironment) -> None:
+    from exxec.process_manager import SpawnProcessManager
+
+    pm = ssh_env.process_manager
+    assert isinstance(pm, SpawnProcessManager)
+    process_id = await pm.start_process("echo $BASE-$CALL", env={"CALL": "c"})
+    assert await pm.wait_for_exit(process_id) == 0
+    assert (await pm.get_output(process_id)).combined.strip() == "b-c"
+
+
+async def test_pty_manager_over_ssh(ssh_env: SshExecutionEnvironment) -> None:
+    from exxec.spawn_pty_manager import SpawnPtyManager
+
+    manager = ssh_env.get_pty_manager()
+    assert isinstance(manager, SpawnPtyManager)
+    info = await manager.create(command="sh")
+    await manager.write(info.id, b"echo remote-$((6 * 7))\r")
+    assert b"remote-42" in await read_until(manager.stream(info.id), b"remote-42")
+    assert await manager.kill(info.id) is True

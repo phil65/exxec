@@ -81,7 +81,7 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
 2. **Done** — `ProcessHandle` (`exxec.process_handle`), `ExecutionEnvironment.spawn()`
    and the `supports_spawn` / `supports_pty` flags. Implemented for:
    - local: pipes via asyncio subprocess; PTYs without a Python-level fork
-     (isolated helper calls `os.login_tty()` and execs), non-blocking master fd
+     (isolated helper in a new session sets the controlling tty and execs), non-blocking master fd
    - ssh: one session channel per process, SSH signal and window-change requests
    - docker: exec API over the hijacked socket (demuxed pipe frames), signals via
      pidfile + `kill` helper exec, exit code from `exec_inspect`

@@ -163,3 +163,29 @@ async def test_context_exit_kills_process(docker_env: DockerExecutionEnvironment
     async with handle:
         pass
     assert handle.returncode == 143  # noqa: PLR2004
+
+
+async def test_process_manager_runs_in_container(docker_env: DockerExecutionEnvironment) -> None:
+    from exxec.process_manager import SpawnProcessManager
+
+    pm = docker_env.process_manager
+    assert isinstance(pm, SpawnProcessManager)
+    process_id = await pm.start_process("test -f /.dockerenv && echo inside")
+    assert await pm.wait_for_exit(process_id) == 0
+    assert (await pm.get_output(process_id)).combined.strip() == "inside"
+    long_running = await pm.start_process("python", args=["-c", "import time; time.sleep(60)"])
+    await pm.kill_process(long_running)
+    assert (await pm.get_process_info(long_running))["is_running"] is False
+    await pm.release_process(process_id)
+    await pm.release_process(long_running)
+
+
+async def test_pty_manager_in_container(docker_env: DockerExecutionEnvironment) -> None:
+    from exxec.spawn_pty_manager import SpawnPtyManager
+
+    manager = docker_env.get_pty_manager()
+    assert isinstance(manager, SpawnPtyManager)
+    info = await manager.create()
+    await manager.write(info.id, b"echo container-$((6 * 7))\r")
+    assert b"container-42" in await read_until(manager.stream(info.id), b"container-42")
+    assert await manager.kill(info.id) is True

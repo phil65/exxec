@@ -21,8 +21,8 @@ from exxec.beam_provider import BeamExecutionEnvironment
 from exxec.cloudflare_provider import CloudflareExecutionEnvironment
 from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager, MockPtyManager
 from exxec.daytona_provider import DaytonaExecutionEnvironment, DaytonaPtyManager
-from exxec.docker_provider import DockerExecutionEnvironment, DockerPtyManager
-from exxec.local_provider import LocalExecutionEnvironment, LocalPtyManager
+from exxec.docker_provider import DockerExecutionEnvironment
+from exxec.local_provider import LocalExecutionEnvironment
 from exxec.pyodide_provider import PyodideExecutionEnvironment
 from exxec.e2b_provider import E2bExecutionEnvironment, E2BPtyManager
 from exxec.hopx_provider import HopxExecutionEnvironment, HopxPtyManager
@@ -36,7 +36,7 @@ from exxec.remote_callable import create_remote_callable, infer_package_dependen
 
 # from exxec.server import fastapi_tool_server
 from exxec_config import ExecutionEnvironmentConfig
-from exxec.ssh_provider import SshExecutionEnvironment, SshPtyManager
+from exxec.ssh_provider import SshExecutionEnvironment
 from exxec.pty_manager import BasePtyManager, PtyInfo, PtyManagerProtocol, PtySize
 
 if TYPE_CHECKING:
@@ -362,7 +362,6 @@ __all__ = [
     # PTY managers
     "DaytonaPtyManager",
     "DockerExecutionEnvironment",
-    "DockerPtyManager",
     "E2BPtyManager",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",
@@ -371,7 +370,6 @@ __all__ = [
     "HopxExecutionEnvironment",
     "HopxPtyManager",
     "LocalExecutionEnvironment",
-    "LocalPtyManager",
     "MicrosandboxExecutionEnvironment",
     "MockExecutionEnvironment",
     "MockProcessManager",
@@ -388,7 +386,6 @@ __all__ = [
     "SpritesExecutionEnvironment",
     "SpritesPtyManager",
     "SshExecutionEnvironment",
-    "SshPtyManager",
     "VercelExecutionEnvironment",
     # Utilities
     "create_remote_callable",

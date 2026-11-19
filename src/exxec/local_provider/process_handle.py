@@ -4,9 +4,9 @@
   (stderr merged into stdout), started in its own process group on POSIX.
 - `LocalPtyProcessHandle`: process attached to a pseudo-terminal (POSIX only).
   No Python-level fork is involved (forking a multi-threaded process is unsafe):
-  asyncio's subprocess machinery starts a minimal isolated Python helper with the
-  terminal's slave side as stdio; the helper makes it the controlling terminal via
-  `os.login_tty()` and execs the target program. I/O uses the non-blocking master
+  asyncio's subprocess machinery starts a minimal isolated Python helper in a new
+  session with the terminal's slave side as stdio; the helper makes it the
+  controlling terminal (`TIOCSCTTY`) and execs the target program. I/O uses the non-blocking master
   file descriptor with event-loop readiness callbacks, and exit is observed via
   asyncio's child watcher, so no threads are involved at all.
 """
@@ -39,8 +39,12 @@ if TYPE_CHECKING:
 READ_CHUNK_SIZE = 65536
 EOT = b"\x04"
 
-_LOGIN_TTY_HELPER = "import os, sys; os.login_tty(0); os.execvp(sys.argv[1], sys.argv[1:])"
-"""Run in the child: become session leader with stdin's tty as controlling terminal."""
+_CTTY_HELPER = (
+    "import fcntl, os, sys, termios; "
+    "fcntl.ioctl(0, termios.TIOCSCTTY, 0); "
+    "os.execvp(sys.argv[1], sys.argv[1:])"
+)
+"""Run in the child (already a session leader): make stdin's tty the controlling terminal."""
 
 
 class LocalPipeProcessHandle(ProcessHandle):
@@ -203,13 +207,16 @@ class LocalPtyProcessHandle(ProcessHandle):
                 "-I",
                 "-S",
                 "-c",
-                _LOGIN_TTY_HELPER,
+                _CTTY_HELPER,
                 *argv,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
                 cwd=cwd,
                 env=env,
+                # setsid() happens in C before the helper runs, so the process group
+                # exists from the start and early signals are not lost.
+                start_new_session=True,
             )
         except BaseException:
             os.close(master_fd)
@@ -285,7 +292,7 @@ class LocalPtyProcessHandle(ProcessHandle):
         if sys.platform == "win32":
             msg = "PTY processes are not supported on Windows"
             raise ProcessHandleError(msg)
-        # login_tty() makes the child a session (and process group) leader.
+        # The child is started as a session (and process group) leader.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(self._process.pid, SIGNAL_NUMBERS[sig])
 
