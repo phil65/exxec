@@ -95,8 +95,10 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
    microsandbox implements `spawn()` too; `exxec.spawn_stream` provides the shared
    spawn-based `stream_command`.
    Remaining:
-   - implement `spawn()` for vercel, e2b, modal, daytona, hopx, sprites (and others
-     with a process API), then drop their PTY managers
+   - implement `spawn()` for vercel (credentials currently get HTTP 403), modal,
+     daytona, hopx, sprites (and others with a process API), then drop their PTY managers
+   - unused native process managers exist for beam, daytona, hopx and vercel
+     (`*_provider/process_manager.py`, never wired up); replace with `spawn()` or wire them
    - unify `stream_command` timeout semantics across providers (docker builds
      `timeout None …` when no timeout is configured)
 4. **Done** — `exxec.terminal` (optional `exxec[vt]` extra, pyghostty on macOS/Linux):
@@ -121,7 +123,7 @@ Upstream features relevant to `spawn()` and the managers, not used by exxec yet:
 |---|---|---|---|---|
 | vercel 0.13 | `create_command(stdin=PIPE)` → `Command` with stdin/stdout/stderr, `wait()` | `open_interactive()` → `InteractiveSession` (stream send/receive/EOF, `resize`, `wait`) | `send_signal()`, `terminate()`, `kill()` | fork, snapshots, drives; **best spawn candidate** (everything native) |
 | microsandbox 0.7 | **done**: `MicrosandboxProcessHandle` on `exec_stream()` | **done** (TTY + resize) | **done** (`signal`, `kill`) | ssh/sftp, fork, snapshots, metrics, logs; tests run on real microVMs locally (CI runners lack a usable hypervisor) |
-| e2b 2.64 | `commands.run(background=True, stdin=True, cwd, envs, on_stdout/on_stderr)` → handle with `send_stdin`/`close_stdin`/`wait` | `pty.create(size, on_data, cwd, envs)`, `pty.resize` | `kill()` (SIGKILL only); other signals via `kill -s` (PID known) | `files.watch_dir`, `files.rename`, snapshots, fork, pause, metrics, `get_host` (ports), git |
+| e2b 2.64 | **done**: `commands.run(background=True, stdin=True)` | **done**: `pty.create()` (explicit commands are exec'd into its login shell after a screen clear) | **done**: SIGKILL native, other signals via `kill`; signal parsed from `signal: <name>` | `files.watch_dir`, `files.rename`, snapshots, fork, pause, metrics, `get_host` (ports), git |
 | modal 1.6 | `exec(...)` → `ContainerProcess` (stdin/stdout/stderr, `wait`, `poll`) | `exec(pty=True, pty_info=...)` | none per process; needs `kill` exec | `sandbox.filesystem` (`watch`, `copy_to_local`/`copy_from_local`), `snapshot_directory`, tunnels, connect tokens |
 | daytona 0.232 | session commands (`execute_session_command` async) + `send_session_command_input`, log streaming | `create_pty_session` / `resize_pty_session` / `kill_pty_session` | delete session only | **`create_ssh_access()`** (could reuse exxec's SSH `spawn()`), LSP servers, computer use, git, fork, snapshots |
 | sprites 0.7 | `command()` + `SpawnOptions(cwd, env, tty, rows, cols, detachable, session_id)` | `AsyncCmd.set_tty` / `set_tty_size`, `attach_session` | services: `signal_service` | **services** (`create_service`/`start`/`stop`/`signal`) fit long-running background processes; checkpoints |

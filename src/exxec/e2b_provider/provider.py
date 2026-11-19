@@ -21,9 +21,10 @@ if TYPE_CHECKING:
     from e2b import AsyncSandbox
     from upathtools.filesystems import E2BFS
 
-    from exxec.e2b_provider.pty_manager import E2BPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 def _get_error_type(e: Exception) -> str:
@@ -54,6 +55,9 @@ def _get_execution_command(language: Language, script_path: str) -> str:
 
 class E2bExecutionEnvironment(ExecutionEnvironment):
     """Executes code in an E2B cloud sandbox."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
@@ -98,8 +102,6 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         self.sandbox: AsyncSandbox | None = None
         # E2B sandboxes run Linux
         self._os_type = "Linux"
-        # Cache PTY manager instance
-        self._pty_manager: E2BPtyManager | None = None
 
     def _ensure_initialized(self) -> AsyncSandbox:
         """Ensure async context."""
@@ -147,14 +149,45 @@ class E2bExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         return E2BFS(sandbox_id=sandbox.sandbox_id)
 
-    def get_pty_manager(self) -> E2BPtyManager:
-        """Return an E2BPtyManager for interactive terminal sessions."""
-        if self._pty_manager is None:
-            from exxec.e2b_provider.pty_manager import E2BPtyManager
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the e2b sandbox.
 
-            sandbox = self._ensure_initialized()
-            self._pty_manager = E2BPtyManager(sandbox)
-        return self._pty_manager
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments; the program replaces the shell via `exec`
+            cwd: Working directory (defaults to the environment's)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Allocate a PTY of this size
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.command_line import build_spawn_command_line
+        from exxec.e2b_provider.process_handle import E2BProcessHandle
+        from exxec.spawn_pty_manager import DEFAULT_SHELL_COMMAND
+
+        sandbox = self._ensure_initialized()
+        merged_env = {**self.env_vars, **(env or {})} or None
+        work_dir = cwd or self.cwd
+        # The login shell is what e2b's PTY starts anyway: no need to exec another one.
+        login_shell = pty is not None and not args and command == DEFAULT_SHELL_COMMAND
+        command_line = build_spawn_command_line(command, args, None, None)
+        return await E2BProcessHandle.start(
+            sandbox,
+            command_line,
+            cwd=work_dir,
+            env=merged_env,
+            size=pty,
+            login_shell=login_shell,
+        )
 
     async def get_domain(self, port: int) -> str:
         """Return the domain name for the sandbox."""

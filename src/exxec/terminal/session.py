@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Self
 
 from exxec.output_broadcast import OutputBroadcaster
 from exxec.pty_manager import PtySize
+from exxec.spawn_pty_manager import DEFAULT_SHELL_COMMAND
 from exxec.terminal.keys import encode_key
 from exxec.terminal.screen import (
     MODE_ALTERNATE_SCREEN,
@@ -46,8 +47,6 @@ DEFAULT_QUIET_PERIOD = 0.3
 
 DEFAULT_WAIT_TIMEOUT = 10.0
 """Default upper bound for `wait_for` / `wait_for_quiet`."""
-
-DEFAULT_SHELL_COMMAND = 'exec "${SHELL:-$(command -v bash || command -v sh)}" -l'
 
 _PASTE_START = b"\x1b[200~"
 _PASTE_END = b"\x1b[201~"

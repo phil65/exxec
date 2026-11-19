@@ -24,7 +24,7 @@ from exxec.daytona_provider import DaytonaExecutionEnvironment, DaytonaPtyManage
 from exxec.docker_provider import DockerExecutionEnvironment
 from exxec.local_provider import LocalExecutionEnvironment
 from exxec.pyodide_provider import PyodideExecutionEnvironment
-from exxec.e2b_provider import E2bExecutionEnvironment, E2BPtyManager
+from exxec.e2b_provider import E2bExecutionEnvironment
 from exxec.hopx_provider import HopxExecutionEnvironment, HopxPtyManager
 from exxec.sprites_provider import SpritesExecutionEnvironment, SpritesPtyManager
 from exxec.srt_provider import SRTExecutionEnvironment
@@ -362,7 +362,6 @@ __all__ = [
     # PTY managers
     "DaytonaPtyManager",
     "DockerExecutionEnvironment",
-    "E2BPtyManager",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",
     "ExecutionEnvironmentConfig",
