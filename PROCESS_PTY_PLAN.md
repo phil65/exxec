@@ -92,9 +92,11 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
    `supports_pty`; `StreamingProcessManager` stays as fallback. Local/ssh/docker PTY
    managers and `LocalProcessManager` were removed. Local `stream_command` is built on
    `spawn()` (kills on close, total timeout, process-group kill, honours cwd).
+   microsandbox implements `spawn()` too; `exxec.spawn_stream` provides the shared
+   spawn-based `stream_command`.
    Remaining:
-   - implement `spawn()` for e2b, modal, daytona, hopx, sprites (and others with a
-     process API), then drop their PTY managers
+   - implement `spawn()` for vercel, e2b, modal, daytona, hopx, sprites (and others
+     with a process API), then drop their PTY managers
    - unify `stream_command` timeout semantics across providers (docker builds
      `timeout None …` when no timeout is configured)
 4. **Done** — `exxec.terminal` (optional `exxec[vt]` extra, pyghostty on macOS/Linux):
@@ -118,7 +120,7 @@ Upstream features relevant to `spawn()` and the managers, not used by exxec yet:
 | Provider | Pipes (`spawn`) | PTY | Signals / kill | Notable unused features |
 |---|---|---|---|---|
 | vercel 0.13 | `create_command(stdin=PIPE)` → `Command` with stdin/stdout/stderr, `wait()` | `open_interactive()` → `InteractiveSession` (stream send/receive/EOF, `resize`, `wait`) | `send_signal()`, `terminate()`, `kill()` | fork, snapshots, drives; **best spawn candidate** (everything native) |
-| microsandbox 0.7 | `exec_stream()` → `ExecHandle` (`take_stdin`, `recv`, `wait`) | `exec_stream(tty=True)` + `ExecHandle.resize()` | `ExecHandle.signal(sig)`, `kill()` | native `sandbox.fs` (stat/rename/copy/streams), ssh/sftp, fork, snapshots, metrics, logs; runs locally (microVMs), so **testable without API keys** |
+| microsandbox 0.7 | **done**: `MicrosandboxProcessHandle` on `exec_stream()` | **done** (TTY + resize) | **done** (`signal`, `kill`) | ssh/sftp, fork, snapshots, metrics, logs; tests run on real microVMs locally (CI runners lack a usable hypervisor) |
 | e2b 2.64 | `commands.run(background=True, stdin=True, cwd, envs, on_stdout/on_stderr)` → handle with `send_stdin`/`close_stdin`/`wait` | `pty.create(size, on_data, cwd, envs)`, `pty.resize` | `kill()` (SIGKILL only); other signals via `kill -s` (PID known) | `files.watch_dir`, `files.rename`, snapshots, fork, pause, metrics, `get_host` (ports), git |
 | modal 1.6 | `exec(...)` → `ContainerProcess` (stdin/stdout/stderr, `wait`, `poll`) | `exec(pty=True, pty_info=...)` | none per process; needs `kill` exec | `sandbox.filesystem` (`watch`, `copy_to_local`/`copy_from_local`), `snapshot_directory`, tunnels, connect tokens |
 | daytona 0.232 | session commands (`execute_session_command` async) + `send_session_command_input`, log streaming | `create_pty_session` / `resize_pty_session` / `kill_pty_session` | delete session only | **`create_ssh_access()`** (could reuse exxec's SSH `spawn()`), LSP servers, computer use, git, fork, snapshots |
@@ -129,8 +131,7 @@ Upstream features relevant to `spawn()` and the managers, not used by exxec yet:
 
 Filesystems (upathtools): most sandbox filesystems already use native SDK file APIs
 (modal uses the new `sandbox.filesystem`). Gaps:
-- microsandbox_fs shells out (`ls`, `cat`, `test`, …) although `sandbox.fs` now
-  offers list/stat/read/write/rename/copy/streams
+- ~~microsandbox_fs shells out~~ — rewritten on `sandbox.fs` (upathtools 6d27200)
 - e2b_fs: `files.rename` and `files.watch_dir` unused; `_glob`/`_grep` still TODO
 - vercel_fs uses `find`/`stat` via commands
 - watch APIs (e2b `watch_dir`, modal `filesystem.watch`) could back fsspec-level
