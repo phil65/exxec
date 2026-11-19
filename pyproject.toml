@@ -296,9 +296,10 @@ python-version = "3.13"
 python-platform = "all"
 
 [tool.ty.analysis]
-# Platform/version-gated extras (pyghostty: not on Windows; daytona: < 3.14).
-# Still type-checked wherever installed.
-allowed-unresolved-imports = ["daytona.**", "pyghostty.**"]
+# Platform/version-gated extras (pyghostty: not on Windows; daytona: < 3.14),
+# and acp, which ships with agentpool (a dependent of exxec, so it cannot be
+# declared). Still type-checked wherever installed.
+allowed-unresolved-imports = ["acp.**", "daytona.**", "pyghostty.**"]
 
 [tool.ty.rules]
 # Narrowing an overridden class attribute (e.g. pydantic discriminators,
