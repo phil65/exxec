@@ -44,8 +44,18 @@ pytestmark = [
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def msb_env() -> AsyncIterator[MicrosandboxExecutionEnvironment]:
-    async with MicrosandboxExecutionEnvironment(env_vars={"BASE": "b"}, cwd="/tmp") as env:
+    from microsandbox import MicrosandboxError
+
+    env = MicrosandboxExecutionEnvironment(env_vars={"BASE": "b"}, cwd="/tmp")
+    try:
+        await env.__aenter__()
+    except MicrosandboxError as e:
+        # e.g. CI runners with the runtime installed but no usable hypervisor
+        pytest.skip(f"microVMs cannot start here: {e}")
+    try:
         yield env
+    finally:
+        await env.__aexit__(None, None, None)
 
 
 async def read_all(handle: ProcessHandle) -> bytes:
