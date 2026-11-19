@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import contextlib
 import inspect
 import os
@@ -22,7 +23,7 @@ from exxec.parse_output import parse_output, wrap_code
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
@@ -529,52 +530,81 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         *,
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
-        """Execute a shell command and stream events."""
-        command = self.wrap_command(command)
+        """Execute a shell command and stream its output line by line.
+
+        The command runs via `spawn()`, i.e. wrapped by `wrap_command()`, in the
+        environment's cwd and in its own process group. Closing or cancelling the
+        stream terminates the process.
+
+        Args:
+            command: Shell command line
+            timeout: Total time limit in seconds (defaults to `default_command_timeout`;
+                no limit if both are None). On expiry the process group is killed.
+
+        Yields:
+            Started, output (one per line) and completed/error events
+        """
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
         process_id = f"local_cmd_{id(self)}"
-        yield ProcessStartedEvent(process_id=process_id, command=command)
+        yield ProcessStartedEvent(process_id=process_id, command=self.wrap_command(command))
         try:
-            process = await create_shell_process(
-                command, stdout="pipe", stderr="stdout", env=self.get_env()
-            )
-            if process.stdout is not None:
-                while True:
-                    try:
-                        line = await asyncio.wait_for(
-                            process.stdout.readline(), timeout=effective_timeout
-                        )
-                        if not line:
-                            break
-                        yield OutputEvent(
-                            process_id=process_id,
-                            data=line.decode().rstrip("\n\r"),
-                            stream="combined",
-                        )
-                    except TimeoutError:
-                        process.kill()
-                        await process.wait()
-                        yield ProcessErrorEvent(
-                            process_id=process_id,
-                            error=f"Command timed out after {effective_timeout} seconds",
-                            error_type="TimeoutError",
-                            exit_code=1,
-                        )
-                        return
-
-            exit_code = await process.wait()
-            if exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
-            else:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Command exited with code {exit_code}",
-                    error_type="CommandError",
-                    exit_code=exit_code,
-                )
-
+            handle = await self.spawn(command)
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
+            return
+        loop = asyncio.get_running_loop()
+        deadline = None if effective_timeout is None else loop.time() + effective_timeout
+
+        async def before_deadline[T](awaitable: Awaitable[T]) -> T:
+            # Bounded per await (never across a yield), so a timeout cannot cancel the
+            # consumer's code while this generator is suspended.
+            if deadline is None:
+                return await awaitable
+            return await asyncio.wait_for(awaitable, timeout=max(deadline - loop.time(), 0))
+
+        async with handle:
+            lines = _iter_lines(handle.output())
+            try:
+                while (line := await before_deadline(anext(lines, None))) is not None:
+                    yield OutputEvent(process_id=process_id, data=line, stream="combined")
+                exit_code = await before_deadline(handle.wait())
+            except TimeoutError:
+                await handle.kill(grace=1.0)
+                yield ProcessErrorEvent(
+                    process_id=process_id,
+                    error=f"Command timed out after {effective_timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=1,
+                )
+                return
+            except Exception as e:  # noqa: BLE001
+                yield ProcessErrorEvent.failed(e, process_id=process_id)
+                return
+            finally:
+                await lines.aclose()
+        if exit_code == 0:
+            yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
+        else:
+            yield ProcessErrorEvent(
+                process_id=process_id,
+                error=f"Command exited with code {exit_code}",
+                error_type="CommandError",
+                exit_code=exit_code,
+            )
+
+
+async def _iter_lines(chunks: AsyncIterator[bytes]) -> AsyncGenerator[str]:
+    """Split a byte stream into decoded lines (without line terminators)."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    pending = ""
+    async for chunk in chunks:
+        pending += decoder.decode(chunk)
+        *complete, pending = pending.split("\n")
+        for line in complete:
+            yield line.rstrip("\r")
+    pending += decoder.decode(b"", final=True)
+    if pending:
+        yield pending.rstrip("\r")
 
 
 if __name__ == "__main__":
