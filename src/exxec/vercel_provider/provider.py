@@ -37,10 +37,15 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 class VercelExecutionEnvironment(ExecutionEnvironment):
     """Executes code in a Vercel cloud sandbox."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
@@ -313,6 +318,44 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             error_id = process_id or str(uuid.uuid4())[:8]
             yield ProcessErrorEvent.failed(e, process_id=error_id)
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the Vercel sandbox.
+
+        Pipe processes use `create_command()`, PTY processes `open_interactive()`.
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments, passed without shell interpretation
+            cwd: Working directory (defaults to the environment's)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Attach to a pseudo-terminal of this size
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.vercel_provider.process_handle import (
+            VercelInteractiveHandle,
+            VercelProcessHandle,
+        )
+
+        sandbox = self._ensure_initialized()
+        argv = [command, *args] if args else ["sh", "-c", command]
+        merged_env = {**self.env_vars, **(env or {})} or None
+        work_dir = cwd or self.cwd
+        if pty is not None:
+            return await VercelInteractiveHandle.start(
+                sandbox, argv, cwd=work_dir, env=merged_env, size=pty
+            )
+        return await VercelProcessHandle.start(sandbox, argv, cwd=work_dir, env=merged_env)
 
     async def stream_command(
         self,
