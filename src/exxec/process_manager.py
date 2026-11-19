@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 import os
 import re
 import shlex
+import subprocess
 import sys
 from typing import TYPE_CHECKING, Any
 import uuid
@@ -63,17 +64,22 @@ class TerminalTask(BaseTerminal):
         return self.task is not None and not self.task.done()
 
 
-def build_command_line(command: str, args: list[str] | None) -> str:
+def build_command_line(command: str, args: list[str] | None, *, windows: bool = False) -> str:
     """Build a shell command line from a command and optional arguments.
 
     Args:
         command: Program name, or a full shell command string when no args are given
-        args: Arguments, shell-quoted when joined
+        args: Arguments, quoted for the target shell when joined
+        windows: Quote for `cmd.exe` / the Windows C runtime instead of a POSIX shell
 
     Returns:
-        A command line suitable for execution by a POSIX shell
+        A command line suitable for execution by the target shell
     """
-    return shlex.join([command, *args]) if args else command
+    if not args:
+        return command
+    if windows:
+        return subprocess.list2cmdline([command, *args])
+    return shlex.join([command, *args])
 
 
 def build_remote_command_line(
@@ -239,7 +245,9 @@ class LocalProcessManager(BaseProcessManager):
         process_id = f"proc_{uuid.uuid4().hex[:8]}"
         args = args or []
         work_dir = str(cwd) if cwd else self.env.cwd
-        command_line = self.env.wrap_command(build_command_line(command, args))
+        command_line = self.env.wrap_command(
+            build_command_line(command, args, windows=sys.platform == "win32")
+        )
         process = await create_shell_process(
             command_line,
             stdout="pipe",

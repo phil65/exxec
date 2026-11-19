@@ -118,6 +118,11 @@ plugins = ["pydantic.mypy"]
 module = ["acp", "acp.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# The daytona extra is only installable on Python < 3.14.
+module = ["daytona", "daytona.*"]
+ignore_missing_imports = true
+
 [tool.pyright]
 venvPath = "."
 venv = ".venv"

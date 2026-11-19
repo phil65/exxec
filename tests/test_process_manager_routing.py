@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,6 +19,7 @@ from exxec.process_manager import (
     KILLED_EXIT_CODE,
     LocalProcessManager,
     StreamingProcessManager,
+    build_command_line,
     build_remote_command_line,
 )
 
@@ -27,6 +29,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from exxec.events import ExecutionEvent
+
+
+posix_only = pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX shell syntax")
 
 
 class WrappingLocalEnvironment(LocalExecutionEnvironment):
@@ -76,6 +81,7 @@ async def test_remote_env_defaults_to_streaming_process_manager() -> None:
     assert isinstance(manager, StreamingProcessManager)
 
 
+@posix_only
 async def test_local_process_applies_wrap_command() -> None:
     async with WrappingLocalEnvironment(default_command_timeout=None) as env:
         pm = env.process_manager
@@ -88,6 +94,7 @@ async def test_local_process_applies_wrap_command() -> None:
         assert info["args"] == ["inner"]
 
 
+@posix_only
 async def test_local_process_uses_env_cwd(tmp_path: Path) -> None:
     async with LocalExecutionEnvironment(cwd=str(tmp_path)) as env:
         pm = env.process_manager
@@ -97,6 +104,7 @@ async def test_local_process_uses_env_cwd(tmp_path: Path) -> None:
         assert output.combined.strip() == str(tmp_path.resolve())
 
 
+@posix_only
 async def test_local_process_cwd_argument_overrides_env_cwd(tmp_path: Path) -> None:
     other = tmp_path / "other"
     other.mkdir()
@@ -108,6 +116,7 @@ async def test_local_process_cwd_argument_overrides_env_cwd(tmp_path: Path) -> N
         assert output.combined.strip() == str(other.resolve())
 
 
+@posix_only
 async def test_local_process_env_vars() -> None:
     async with LocalExecutionEnvironment(env_vars={"ENV_LEVEL": "env"}, inherit_env=True) as env:
         pm = env.process_manager
@@ -132,6 +141,7 @@ async def test_local_process_output_without_newline() -> None:
         await pm.kill_process(process_id)
 
 
+@posix_only
 async def test_local_kill_terminates_child_processes() -> None:
     async with LocalExecutionEnvironment() as env:
         pm = env.process_manager
@@ -223,6 +233,12 @@ async def test_streaming_kill_closes_stream() -> None:
 def test_build_remote_command_line_rejects_invalid_env_names() -> None:
     with pytest.raises(ValueError, match="Invalid environment variable names"):
         build_remote_command_line("true", None, {"BAD NAME": "x"})
+
+
+def test_build_command_line_quoting() -> None:
+    assert build_command_line("echo", ["a b"]) == "echo 'a b'"
+    assert build_command_line("echo", ["a b"], windows=True) == 'echo "a b"'
+    assert build_command_line("echo a | cat", None) == "echo a | cat"
 
 
 def test_build_remote_command_line_without_prefixes() -> None:
