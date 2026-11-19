@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import time
 from typing import TYPE_CHECKING, Literal, Self
-import uuid
 
 from exxec.base import ExecutionEnvironment
 from exxec.beam_provider.helpers import get_image
@@ -30,10 +29,14 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 class BeamExecutionEnvironment(ExecutionEnvironment):
     """Executes code in a Beam cloud sandbox."""
+
+    supports_spawn = True
 
     def __init__(
         self,
@@ -245,51 +248,51 @@ class BeamExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
 
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the Beam sandbox (pipes only: no stdin, no PTY).
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments, passed without shell interpretation
+            cwd: Working directory (defaults to the environment's, else /workspace)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Not supported by Beam
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.beam_provider.process_handle import BeamProcessHandle
+
+        self._check_spawn_pty(pty)
+        instance = self.validate_instance()
+        argv = [command, *args] if args else ["sh", "-c", command]
+        merged_env = {**self.env_vars, **(env or {})} or None
+        return await BeamProcessHandle.start(instance, argv, cwd=cwd or self.cwd, env=merged_env)
+
     async def stream_command(
         self,
         command: str,
         *,
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
-        """Execute a terminal command and stream events in the Beam sandbox."""
-        self.instance = self.validate_instance()
-        effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        cmd, args = parse_command(command)
-        process_id: str | None = None
-        try:
-            process = self.instance.process.exec(cmd, *args, env=self.get_env())
-            process_id = str(process.pid)
-            yield ProcessStartedEvent(process_id=process_id, command=command)
-            for line in process.logs:
-                yield OutputEvent(
-                    process_id=process_id, data=line.rstrip("\n\r"), stream="combined"
-                )
+        """Execute a shell command and stream its output line by line.
 
-            exit_code = await asyncio.wait_for(
-                asyncio.to_thread(process.wait),
-                timeout=effective_timeout,
-            )
-            if exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
-            else:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Command exited with code {exit_code}",
-                    error_type="CommandError",
-                    exit_code=exit_code,
-                )
+        Runs via `spawn()`, so the synchronous Beam SDK no longer blocks the event loop.
+        """
+        from exxec.spawn_stream import stream_command_via_spawn
 
-        except TimeoutError:
-            error_id = process_id or str(uuid.uuid4())[:8]
-            yield ProcessErrorEvent(
-                process_id=error_id,
-                error=f"Command timed out after {effective_timeout} seconds",
-                error_type="TimeoutError",
-                exit_code=1,
-            )
-        except Exception as e:  # noqa: BLE001
-            error_id = process_id or str(uuid.uuid4())[:8]
-            yield ProcessErrorEvent.failed(e, process_id=error_id)
+        async for event in stream_command_via_spawn(
+            self, command, timeout=timeout, process_id=f"beam_cmd_{id(self)}"
+        ):
+            yield event
 
 
 if __name__ == "__main__":
