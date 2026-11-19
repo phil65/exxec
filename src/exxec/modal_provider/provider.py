@@ -26,8 +26,9 @@ if TYPE_CHECKING:
     from upathtools.filesystems import ModalFS
 
     from exxec.events import ExecutionEvent
-    from exxec.modal_provider.pty_manager import ModalPtyManager
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 def _get_execution_command(language: Language, script_path: str) -> list[str]:
@@ -45,6 +46,9 @@ def _get_execution_command(language: Language, script_path: str) -> list[str]:
 
 class ModalExecutionEnvironment(ExecutionEnvironment):
     """Executes code in a Modal serverless sandbox."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
@@ -113,8 +117,6 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         self.sandbox: Sandbox | None = None
         # Modal sandboxes run Linux
         self._os_type = "Linux"
-        # Cache PTY manager instance
-        self._pty_manager: ModalPtyManager | None = None
 
     def _ensure_initialized(self) -> Sandbox:
         """Validate that the environment is properly initialized.
@@ -208,14 +210,35 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         sandbox = self._ensure_initialized()
         return ModalFS(sandbox_id=sandbox.object_id)
 
-    def get_pty_manager(self) -> ModalPtyManager:
-        """Return a ModalPtyManager for interactive terminal sessions."""
-        if self._pty_manager is None:
-            from exxec.modal_provider.pty_manager import ModalPtyManager
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the Modal sandbox via `Sandbox.exec()`.
 
-            sandbox = self._ensure_initialized()
-            self._pty_manager = ModalPtyManager(sandbox)
-        return self._pty_manager
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments, passed without shell interpretation
+            cwd: Working directory (defaults to the environment's)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Attach to a pseudo-terminal of this size
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.modal_provider.process_handle import ModalProcessHandle
+
+        sandbox = self._ensure_initialized()
+        argv = [command, *args] if args else ["sh", "-c", command]
+        merged_env = {**self.env_vars, **(env or {})} or None
+        return await ModalProcessHandle.start(
+            sandbox, argv, cwd=cwd or self.cwd, env=merged_env, size=pty
+        )
 
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in the Modal sandbox."""

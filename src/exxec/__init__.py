@@ -29,7 +29,7 @@ from exxec.hopx_provider import HopxExecutionEnvironment, HopxPtyManager
 from exxec.sprites_provider import SpritesExecutionEnvironment, SpritesPtyManager
 from exxec.srt_provider import SRTExecutionEnvironment
 from exxec.microsandbox_provider import MicrosandboxExecutionEnvironment
-from exxec.modal_provider import ModalExecutionEnvironment, ModalPtyManager
+from exxec.modal_provider import ModalExecutionEnvironment
 from exxec.vercel_provider import DEFAULT_TIMEOUT_SECONDS, VercelExecutionEnvironment
 from exxec.models import ExecutionResult, ServerInfo
 from exxec.remote_callable import create_remote_callable, infer_package_dependencies
@@ -373,7 +373,6 @@ __all__ = [
     "MockProcessManager",
     "MockPtyManager",
     "ModalExecutionEnvironment",
-    "ModalPtyManager",
     "OSType",
     "PtyInfo",
     "PtyManagerProtocol",

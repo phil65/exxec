@@ -65,7 +65,6 @@ class PtyManagerProtocol(Protocol):
 
     Implementations:
         - SpawnPtyManager: Any environment with `supports_pty`
-        - ModalPtyManager: Uses Modal's PTYInfo
     """
 
     async def create(
