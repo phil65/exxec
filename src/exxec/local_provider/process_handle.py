@@ -282,6 +282,9 @@ class LocalPtyProcessHandle(ProcessHandle):
     async def send_signal(self, sig: SignalName) -> None:
         if self._process.returncode is not None:
             return
+        if sys.platform == "win32":
+            msg = "PTY processes are not supported on Windows"
+            raise ProcessHandleError(msg)
         # login_tty() makes the child a session (and process group) leader.
         with contextlib.suppress(ProcessLookupError):
             os.killpg(self._process.pid, SIGNAL_NUMBERS[sig])
@@ -311,6 +314,9 @@ class LocalPtyProcessHandle(ProcessHandle):
 
 
 def _set_window_size(fd: int, size: PtySize) -> None:
+    if sys.platform == "win32":
+        msg = "PTY processes are not supported on Windows"
+        raise ProcessHandleError(msg)
     import fcntl
     import termios
 
