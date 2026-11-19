@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import codecs
 import contextlib
 import inspect
 import os
@@ -23,7 +22,7 @@ from exxec.parse_output import parse_output, wrap_code
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
+    from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
@@ -375,7 +374,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events."""
-        from exxec.events import ProcessErrorEvent, ProcessStartedEvent
+        from exxec.events import ProcessErrorEvent
 
         process_id = f"local_{id(self)}"
         yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
@@ -544,67 +543,16 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         Yields:
             Started, output (one per line) and completed/error events
         """
-        effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        process_id = f"local_cmd_{id(self)}"
-        yield ProcessStartedEvent(process_id=process_id, command=self.wrap_command(command))
-        try:
-            handle = await self.spawn(command)
-        except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
-            return
-        loop = asyncio.get_running_loop()
-        deadline = None if effective_timeout is None else loop.time() + effective_timeout
+        from exxec.spawn_stream import stream_command_via_spawn
 
-        async def before_deadline[T](awaitable: Awaitable[T]) -> T:
-            # Bounded per await (never across a yield), so a timeout cannot cancel the
-            # consumer's code while this generator is suspended.
-            if deadline is None:
-                return await awaitable
-            return await asyncio.wait_for(awaitable, timeout=max(deadline - loop.time(), 0))
-
-        async with handle:
-            lines = _iter_lines(handle.output())
-            try:
-                while (line := await before_deadline(anext(lines, None))) is not None:
-                    yield OutputEvent(process_id=process_id, data=line, stream="combined")
-                exit_code = await before_deadline(handle.wait())
-            except TimeoutError:
-                await handle.kill(grace=1.0)
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Command timed out after {effective_timeout} seconds",
-                    error_type="TimeoutError",
-                    exit_code=1,
-                )
-                return
-            except Exception as e:  # noqa: BLE001
-                yield ProcessErrorEvent.failed(e, process_id=process_id)
-                return
-            finally:
-                await lines.aclose()
-        if exit_code == 0:
-            yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
-        else:
-            yield ProcessErrorEvent(
-                process_id=process_id,
-                error=f"Command exited with code {exit_code}",
-                error_type="CommandError",
-                exit_code=exit_code,
-            )
-
-
-async def _iter_lines(chunks: AsyncIterator[bytes]) -> AsyncGenerator[str]:
-    """Split a byte stream into decoded lines (without line terminators)."""
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    pending = ""
-    async for chunk in chunks:
-        pending += decoder.decode(chunk)
-        *complete, pending = pending.split("\n")
-        for line in complete:
-            yield line.rstrip("\r")
-    pending += decoder.decode(b"", final=True)
-    if pending:
-        yield pending.rstrip("\r")
+        async for event in stream_command_via_spawn(
+            self,
+            command,
+            timeout=timeout,
+            process_id=f"local_cmd_{id(self)}",
+            display_command=self.wrap_command(command),
+        ):
+            yield event
 
 
 if __name__ == "__main__":

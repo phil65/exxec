@@ -1,4 +1,4 @@
-"""Microsandbox execution environment that runs code in cloud microVMs."""
+"""Microsandbox execution environment that runs code in microVMs."""
 
 from __future__ import annotations
 

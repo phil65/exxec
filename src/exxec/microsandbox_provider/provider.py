@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import time
 from typing import TYPE_CHECKING, Self
+import uuid
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 def _get_env_prefix(env_vars: dict[str, str]) -> str:
@@ -43,17 +47,28 @@ def _inject_env_vars_to_code(env_vars: dict[str, str], code: str) -> str:
     return env_setup + code
 
 
+DEFAULT_IMAGES: dict[str, str] = {
+    "python": "python:3.13-slim",
+    "javascript": "node:22-slim",
+    "typescript": "node:22-slim",
+}
+"""OCI images used when no image is configured, by language."""
+
+
 class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
-    """Executes code in a Microsandbox containerized environment."""
+    """Executes code in a Microsandbox microVM."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
         lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
         dependencies: list[str] | None = None,
-        namespace: str = "default",
+        namespace: str = "exxec",
         api_key: str | None = None,
         memory: int = 512,
-        cpus: float = 1.0,
+        cpus: int = 1,
         timeout: float = 180.0,
         language: Language = "python",
         image: str | None = None,
@@ -67,15 +82,15 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         Args:
             lifespan_handler: Async context manager for tool server (optional)
             dependencies: List of packages to install via pip / npm
-            namespace: Sandbox namespace
+            namespace: Prefix for the sandbox name (a unique suffix is appended)
             api_key: API key for authentication (uses MSB_API_KEY env var if None)
-            memory: Memory limit in MB
-            cpus: CPU limit
+            memory: Memory limit in MiB
+            cpus: Number of virtual CPUs
             timeout: Sandbox start timeout in seconds
             language: Programming language to use
-            image: Custom Docker image (uses default for language if None)
-            cwd: Working directory for the sandbox
-            env_vars: Environment variables to set for all executions (via command prefix)
+            image: OCI image (defaults to a slim image for the language)
+            cwd: Working directory in the sandbox
+            env_vars: Environment variables for all processes in the sandbox
             inherit_env: If True, inherit environment variables from os.environ
             default_command_timeout: Default timeout for command execution in seconds
         """
@@ -117,12 +132,19 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         from microsandbox import Sandbox
 
         await super().__aenter__()
-        self.sandbox = await Sandbox.create(self.namespace, image=self.image)
-        assert self.sandbox
-        # await self.sandbox.start()
-        # Configure sandbox resources if needed
-        # Note: Microsandbox handles resource config during start()
-        # which is already called by the context manager
+        self.sandbox = await asyncio.wait_for(
+            Sandbox.create(
+                f"{self.namespace}-{uuid.uuid4().hex[:12]}",
+                image=self.image or DEFAULT_IMAGES.get(self.language, DEFAULT_IMAGES["python"]),
+                memory=self.memory,
+                cpus=self.cpus,
+                workdir=self.cwd,
+                # Only the configured variables: the host environment is meaningless in the VM.
+                env=self.env_vars or None,
+                ephemeral=True,
+            ),
+            timeout=self.timeout,
+        )
         if self.dependencies and self.language == "python":
             deps_str = " ".join(self.dependencies)
             install_result = await self.sandbox.shell(f"pip install {deps_str}")
@@ -144,6 +166,35 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
                 await self.sandbox.stop()
 
         await super().__aexit__(exc_type, exc_val, exc_tb)
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the microVM via `exec_stream()`.
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments, passed without shell interpretation
+            cwd: Working directory (defaults to the sandbox workdir)
+            env: Additional environment variables (sandbox-wide `env_vars` apply too)
+            pty: Allocate a TTY of this size
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.microsandbox_provider.process_handle import MicrosandboxProcessHandle
+
+        sandbox = self._ensure_initialized()
+        argv = [command, *args] if args else ["sh", "-c", command]
+        return await MicrosandboxProcessHandle.start(
+            sandbox, argv, cwd=cwd or self.cwd, env=env or None, size=pty
+        )
 
     def get_fs(self) -> MicrosandboxFS:
         """Return a MicrosandboxFS instance for the sandbox."""
@@ -231,11 +282,6 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
-    # Note: Streaming methods not implemented as Microsandbox doesn't
-    # support real-time streaming
-    # The base class will raise NotImplementedError for execute_stream()
-    # and execute_command_stream()
-
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and emit combined events (no real-time streaming)."""
         process_id = f"microsandbox_{id(self.sandbox)}"
@@ -264,22 +310,13 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         *,
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
-        """Execute terminal command and emit combined events (no real-time streaming)."""
-        process_id = f"microsandbox_cmd_{id(self.sandbox)}"
-        yield ProcessStartedEvent(process_id=process_id, command=command)
-        try:
-            result = await self.execute_command(command, timeout=timeout)
-            if result.stdout:  # Emit output as single combined event
-                yield OutputEvent(process_id=process_id, data=result.stdout, stream="combined")
-            if result.success:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=result.exit_code or 0)
-            else:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=result.error or "Unknown error",
-                    error_type=result.error_type or "CommandError",
-                    exit_code=result.exit_code,
-                )
+        """Execute a shell command and stream its output line by line, in real time."""
+        from exxec.spawn_stream import stream_command_via_spawn
 
-        except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+        async for event in stream_command_via_spawn(
+            self,
+            command,
+            timeout=timeout,
+            process_id=f"microsandbox_cmd_{id(self.sandbox)}",
+        ):
+            yield event
