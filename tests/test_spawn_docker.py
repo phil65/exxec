@@ -73,7 +73,9 @@ async def test_pipe_output_cwd_env_and_exit_code(docker_env: DockerExecutionEnvi
         assert handle.is_pty is False
         lines = (await read_all(handle)).decode().splitlines()
         assert await handle.wait() == 5  # noqa: PLR2004
-    assert lines == ["/workspace", "b x y a 'b' c", "to stderr"]
+    # Docker delivers stdout and stderr on separate streams: no relative ordering.
+    assert sorted(lines) == sorted(["/workspace", "b x y a 'b' c", "to stderr"])
+    assert lines.index("/workspace") < lines.index("b x y a 'b' c")
 
 
 async def test_pipe_stdin_roundtrip(docker_env: DockerExecutionEnvironment) -> None:

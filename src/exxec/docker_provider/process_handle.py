@@ -4,6 +4,8 @@
   Without a TTY Docker multiplexes stdout/stderr into framed chunks
   (8-byte header: stream type, 3 padding bytes, big-endian payload size), which
   are demultiplexed and merged; with a TTY the stream is raw terminal output.
+  Docker reads stdout and stderr from separate pipes, so their relative order in
+  the merged output is not guaranteed (within each stream it is).
 - Docker has no API to signal an exec'd process. The command is started through
   `sh`, which records its PID in a pidfile and then `exec`s the target, so the
   recorded PID is the target's. Signals are delivered with `kill` via a second

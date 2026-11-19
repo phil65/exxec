@@ -129,17 +129,15 @@ class LocalPipeProcessHandle(ProcessHandle):
     async def send_signal(self, sig: SignalName) -> None:
         if self._process.returncode is not None:
             return
-        try:
-            if sys.platform == "win32":
-                # Windows has no process groups/POSIX signals for subprocesses.
+        if sys.platform == "win32":
+            # Windows has no process groups/POSIX signals for subprocesses.
+            with contextlib.suppress(ProcessLookupError):
                 if sig == "KILL":
                     self._process.kill()
                 else:
                     self._process.terminate()
-            else:
-                os.killpg(self._process.pid, SIGNAL_NUMBERS[sig])
-        except ProcessLookupError:
-            pass
+            return
+        _signal_group(self._process.pid, SIGNAL_NUMBERS[sig])
 
     async def _wait(self) -> int:
         return normalize_returncode(await self._process.wait())
@@ -293,8 +291,7 @@ class LocalPtyProcessHandle(ProcessHandle):
             msg = "PTY processes are not supported on Windows"
             raise ProcessHandleError(msg)
         # The child is started as a session (and process group) leader.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(self._process.pid, SIGNAL_NUMBERS[sig])
+        _signal_group(self._process.pid, SIGNAL_NUMBERS[sig])
 
     async def _wait(self) -> int:
         return normalize_returncode(await self._process.wait())
@@ -318,6 +315,24 @@ class LocalPtyProcessHandle(ProcessHandle):
             if not future.done():
                 future.set_result(None)
         os.close(self._fd)
+
+
+def _signal_group(pid: int, signum: int) -> None:
+    """Signal the process group led by `pid`, tolerating already-exited processes.
+
+    macOS reports EPERM (not ESRCH) when the group only contains unreaped zombies;
+    signalling the leader directly then either succeeds or confirms it is gone.
+    """
+    if sys.platform == "win32":
+        msg = "Process groups are not supported on Windows"
+        raise ProcessHandleError(msg)
+    try:
+        os.killpg(pid, signum)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(pid, signum)
 
 
 def _set_window_size(fd: int, size: PtySize) -> None:
