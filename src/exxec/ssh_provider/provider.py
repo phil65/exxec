@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+from contextlib import AsyncExitStack
 import time
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
@@ -23,11 +25,20 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
     from exxec.ssh_provider.pty_manager import SshPtyManager
+
+
+class _AsyncClosable(Protocol):
+    async def close(self) -> None: ...
 
 
 class SshExecutionEnvironment(ExecutionEnvironment):
     """Executes code on remote machines via SSH using asyncssh."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
@@ -85,6 +96,9 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         # Cache PTY manager instance
         self._pty_manager: SshPtyManager | None = None
         self._fs: WrapperFileSystem | None = None
+        # The SFTP filesystem uses its own connection; tracked to close it on exit.
+        self._sftp_pool: _AsyncClosable | None = None
+        self._sftp_stack: AsyncExitStack | None = None
 
     def _ensure_connected(self) -> SSHClientConnection:
         """Validate that SSH connection is established.
@@ -115,9 +129,6 @@ class SshExecutionEnvironment(ExecutionEnvironment):
 
     async def __aenter__(self) -> Self:
         """Establish SSH connection and set up remote environment."""
-        # Start tool server via base class
-        await super().__aenter__()
-
         import asyncssh
 
         # Build connection arguments
@@ -135,6 +146,8 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         # Create and enter the asyncssh connection context manager
         self._connection_cm = asyncssh.connect(**self.connect_kwargs)
         self.connection = await self._connection_cm.__aenter__()
+        # Base setup (tool server, OS detection) runs commands, so it needs the connection.
+        await super().__aenter__()
         # Set up remote working directory
         if self.cwd:
             self._remote_work_dir = self.cwd
@@ -172,12 +185,24 @@ class SshExecutionEnvironment(ExecutionEnvironment):
                 await self.run(f"rm -rf {self._remote_work_dir}")
 
             await self._connection_cm.__aexit__(exc_type, exc_val, exc_tb)
+        await self._close_fs()
         await super().__aexit__(exc_type, exc_val, exc_tb)
+
+    async def _close_fs(self) -> None:
+        """Close the SFTP channel pool and the filesystem's own SSH connection."""
+        pool, stack = self._sftp_pool, self._sftp_stack
+        self._sftp_pool = self._sftp_stack = None
+        self._fs = None
+        if pool is not None:
+            await pool.close()
+        if stack is not None:
+            # A partially initialized SFTP client may fail on close; mirror sshfs.
+            with contextlib.suppress(BrokenPipeError):
+                await stack.aclose()
 
     async def _create_fs(self) -> WrapperFileSystem:
         """Create SSHFileSystem with proper event loop integration."""
         import asyncio
-        from contextlib import AsyncExitStack
 
         from sshfs import SSHFileSystem  # type: ignore[import-untyped]
         from sshfs.pools import SFTPSoftChannelPool  # type: ignore[import-untyped]
@@ -190,14 +215,18 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         fs._intrans = False
         fs._transaction = None
         fs.dircache = {}  # pyright: ignore[reportAttributeAccessIssue]
-        fs._stack = AsyncExitStack()
         fs.active_executors = 0
+        stack = AsyncExitStack()
+        fs._stack = stack
         fs._client, fs._pool = await fs._connect(
             self.connect_kwargs["host"],
             SFTPSoftChannelPool,
             max_sftp_channels=8,
-            **{k: v for k, v in self.connect_kwargs.items() if k != "host"},
+            connect_args={k: v for k, v in self.connect_kwargs.items() if k != "host"},
+            sftp_client_kwargs={},
         )
+        self._sftp_pool = fs._pool
+        self._sftp_stack = stack
         return WrapperFileSystem(fs)
 
     def get_fs(self) -> WrapperFileSystem:
@@ -206,6 +235,40 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             msg = "Filesystem not available. Use 'async with' context manager first."
             raise RuntimeError(msg)
         return self._fs
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process on the remote machine in its own SSH session channel.
+
+        Environment variables are exported in the command line (servers usually
+        restrict which variables clients may set via SSH env requests).
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments; the program replaces the shell via `exec`
+            cwd: Remote working directory (defaults to the environment's directory)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Request a pseudo-terminal of this size
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.command_line import build_spawn_command_line
+        from exxec.ssh_provider.process_handle import SshProcessHandle
+
+        connection = self._ensure_connected()
+        merged_env = {**self.env_vars, **(env or {})}
+        command_line = build_spawn_command_line(
+            command, args, cwd or self._remote_work_dir, merged_env or None
+        )
+        return await SshProcessHandle.start(connection, command_line, size=pty)
 
     def get_pty_manager(self) -> SshPtyManager:
         """Return a SshPtyManager for interactive terminal sessions."""

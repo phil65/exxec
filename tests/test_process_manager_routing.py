@@ -14,14 +14,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from exxec import LocalExecutionEnvironment, MockExecutionEnvironment
+from exxec.command_line import build_command_line, build_remote_command_line
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
-from exxec.process_manager import (
-    KILLED_EXIT_CODE,
-    LocalProcessManager,
-    StreamingProcessManager,
-    build_command_line,
-    build_remote_command_line,
-)
+from exxec.process_manager import KILLED_EXIT_CODE, LocalProcessManager, StreamingProcessManager
 
 
 if TYPE_CHECKING:

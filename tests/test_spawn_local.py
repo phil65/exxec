@@ -13,6 +13,7 @@ from exxec import LocalExecutionEnvironment
 from exxec.process_handle import (
     ProcessHandleError,
     normalize_returncode,
+    parse_signal_name,
     signal_exit_code,
 )
 from exxec.pty_manager import PtySize
@@ -53,6 +54,12 @@ def test_normalize_returncode() -> None:
     assert normalize_returncode(-15) == 143  # noqa: PLR2004
 
 
+def test_parse_signal_name() -> None:
+    assert parse_signal_name("SIGTERM") == "TERM"
+    assert parse_signal_name("INT") == "INT"
+    assert parse_signal_name("USR1") is None
+
+
 def test_signal_exit_code() -> None:
     assert signal_exit_code("TERM") == 143  # noqa: PLR2004
     assert signal_exit_code("SIGKILL") == 137  # noqa: PLR2004
@@ -77,10 +84,12 @@ async def test_pipe_argv_output_and_exit_code() -> None:
 
 
 async def test_pipe_shell_command_line() -> None:
-    async with LocalExecutionEnvironment() as env:
-        async with await env.spawn("echo one && echo two") as handle:
-            output = await read_all(handle)
-            assert await handle.wait() == 0
+    async with (
+        LocalExecutionEnvironment() as env,
+        await env.spawn("echo one && echo two") as handle,
+    ):
+        output = await read_all(handle)
+        assert await handle.wait() == 0
     assert output.decode().split() == ["one", "two"]
 
 
@@ -107,18 +116,16 @@ async def test_pipe_cwd_and_env(tmp_path: Path) -> None:
 
 
 async def test_output_single_consumer() -> None:
-    async with LocalExecutionEnvironment() as env:
-        async with await env.spawn(PY, ["-c", "pass"]) as handle:
+    async with LocalExecutionEnvironment() as env, await env.spawn(PY, ["-c", "pass"]) as handle:
+        handle.output()
+        with pytest.raises(ProcessHandleError):
             handle.output()
-            with pytest.raises(ProcessHandleError):
-                handle.output()
 
 
 async def test_pipe_resize_rejected() -> None:
-    async with LocalExecutionEnvironment() as env:
-        async with await env.spawn(PY, ["-c", "pass"]) as handle:
-            with pytest.raises(ProcessHandleError):
-                await handle.resize(PtySize(rows=10, cols=10))
+    async with LocalExecutionEnvironment() as env, await env.spawn(PY, ["-c", "pass"]) as handle:
+        with pytest.raises(ProcessHandleError):
+            await handle.resize(PtySize(rows=10, cols=10))
 
 
 @posix_only
@@ -145,11 +152,13 @@ async def test_pipe_kill_escalates_to_sigkill() -> None:
 
 @posix_only
 async def test_pipe_kill_terminates_process_group() -> None:
-    async with LocalExecutionEnvironment() as env:
-        async with await env.spawn("sleep 30 & echo $!; wait") as handle:
-            output = await read_until(handle, b"\n")
-            child_pid = int(output.strip())
-            await handle.kill(grace=2)
+    async with (
+        LocalExecutionEnvironment() as env,
+        await env.spawn("sleep 30 & echo $!; wait") as handle,
+    ):
+        output = await read_until(handle, b"\n")
+        child_pid = int(output.strip())
+        await handle.kill(grace=2)
     await asyncio.sleep(0.2)
     with pytest.raises(ProcessLookupError):
         os.kill(child_pid, 0)
@@ -226,8 +235,7 @@ async def test_pty_resize_delivers_sigwinch() -> None:
                     break
             await handle.resize(PtySize(rows=40, cols=120))
             assert handle.pty_size == PtySize(rows=40, cols=120)
-            async for chunk in iterator:
-                chunks.append(chunk)
+            chunks.extend([chunk async for chunk in iterator])
             assert await handle.wait() == 0
     assert "size 40 120" in b"".join(chunks).decode()
 
@@ -255,10 +263,12 @@ async def test_pty_shell_command_line_and_kill() -> None:
 
 @posix_only
 async def test_pty_nonzero_exit_code() -> None:
-    async with LocalExecutionEnvironment() as env:
-        async with await env.spawn("exit 7", pty=PtySize()) as handle:
-            await read_all(handle)
-            assert await handle.wait() == 7  # noqa: PLR2004
+    async with (
+        LocalExecutionEnvironment() as env,
+        await env.spawn("exit 7", pty=PtySize()) as handle,
+    ):
+        await read_all(handle)
+        assert await handle.wait() == 7  # noqa: PLR2004
 
 
 @posix_only

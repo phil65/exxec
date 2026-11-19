@@ -62,6 +62,28 @@ def normalize_returncode(code: int) -> int:
     return 128 - code if code < 0 else code
 
 
+def parse_signal_name(name: str) -> SignalName | None:
+    """Map a signal name (with or without `SIG` prefix) to a supported `SignalName`.
+
+    Args:
+        name: Signal name, e.g. "TERM" or "SIGINT"
+
+    Returns:
+        The matching `SignalName`, or None if the signal is not supported
+    """
+    match name.removeprefix("SIG"):
+        case "INT":
+            return "INT"
+        case "TERM":
+            return "TERM"
+        case "KILL":
+            return "KILL"
+        case "HUP":
+            return "HUP"
+        case _:
+            return None
+
+
 def signal_exit_code(name: str) -> int:
     """Exit code for a process terminated by the named signal.
 

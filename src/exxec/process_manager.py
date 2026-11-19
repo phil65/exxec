@@ -19,7 +19,6 @@ import codecs
 import contextlib
 from dataclasses import dataclass, field
 import os
-import re
 import shlex
 import sys
 from typing import TYPE_CHECKING, Any
@@ -29,6 +28,7 @@ from anyenv.process_manager.models import ProcessOutput
 from anyenv.process_manager.process_manager import BaseTerminal
 from anyenv.process_manager.protocol import ProcessManagerProtocol
 
+from exxec.command_line import build_command_line, build_remote_command_line
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent
 from exxec.log import get_logger
 
@@ -48,8 +48,6 @@ DEFAULT_OUTPUT_LIMIT = 1048576
 KILLED_EXIT_CODE = 130
 """Exit code reported for processes terminated via `kill_process`."""
 
-_ENV_VAR_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 
 @dataclass
 class TerminalTask(BaseTerminal):
@@ -61,54 +59,6 @@ class TerminalTask(BaseTerminal):
     def is_running(self) -> bool:
         """Check if the output collection task is still running."""
         return self.task is not None and not self.task.done()
-
-
-def build_command_line(command: str, args: list[str] | None) -> str:
-    """Build a POSIX shell command line from a command and optional arguments.
-
-    Args:
-        command: Program name, or a full shell command string when no args are given
-        args: Arguments, shell-quoted when joined
-
-    Returns:
-        A command line suitable for execution by a POSIX shell
-    """
-    return shlex.join([command, *args]) if args else command
-
-
-def build_remote_command_line(
-    command_line: str,
-    cwd: str | None,
-    env: dict[str, str] | None,
-) -> str:
-    """Prefix a command line with directory change and environment exports.
-
-    Used for environments where cwd and env can only be passed as part of the
-    shell command itself.
-
-    Args:
-        command_line: Shell command line to run
-        cwd: Working directory to change into first
-        env: Environment variables to export first
-
-    Returns:
-        Combined POSIX shell command line
-
-    Raises:
-        ValueError: If an environment variable name is not a valid identifier
-    """
-    parts: list[str] = []
-    if cwd:
-        parts.append(f"cd {shlex.quote(cwd)}")
-    if env:
-        invalid = [name for name in env if not _ENV_VAR_NAME.match(name)]
-        if invalid:
-            msg = f"Invalid environment variable names: {', '.join(invalid)}"
-            raise ValueError(msg)
-        assignments = " ".join(f"{name}={shlex.quote(value)}" for name, value in env.items())
-        parts.append(f"export {assignments}")
-    parts.append(command_line)
-    return " && ".join(parts)
 
 
 class BaseProcessManager(ProcessManagerProtocol, ABC):
