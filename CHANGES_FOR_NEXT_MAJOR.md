@@ -31,5 +31,5 @@ exit_code, output_limit) in anyenv and use it in all exxec managers.
 
 - Add `wait(pty_id) -> int` to `PtyManagerProtocol` (`SpawnPtyManager` has it).
 - Make `get_pty_manager()` a property, like `process_manager`.
-- Drop the remaining per-provider PTY managers (modal, daytona, hopx, sprites)
-  once those providers implement `spawn()`, and remove their exports.
+- Drop the remaining per-provider PTY managers (hopx, sprites) once those
+  providers implement `spawn()`, and remove their exports.

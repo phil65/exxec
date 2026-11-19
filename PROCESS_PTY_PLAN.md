@@ -1,6 +1,6 @@
 # Process / PTY / Terminal redesign
 
-Status: steps 1, 2 and 4 are done; step 3 is done for local, ssh and docker.
+Status: steps 1–4 are done; see the provider status table for per-provider support.
 
 ## Problem
 
@@ -114,27 +114,28 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
 Downstream (agentpool): per-agent terminal registry, `TerminalTools` resource provider,
 OpenCode PTY routes reusing `TerminalSession`, optional VFS snapshot mounts.
 
-## Provider SDK survey (2026-11-19)
+## Provider status
 
-Installed SDKs are current (beam-client, microsandbox and sshfs one patch behind).
-Upstream features relevant to `spawn()` and the managers, not used by exxec yet:
-
-| Provider | Pipes (`spawn`) | PTY | Signals / kill | Notable unused features |
+| Provider | `spawn()` pipes | `spawn()` PTY | Verified against | Notes |
 |---|---|---|---|---|
-| vercel 0.13 | `create_command(stdin=PIPE)` → `Command` with stdin/stdout/stderr, `wait()` | `open_interactive()` → `InteractiveSession` (stream send/receive/EOF, `resize`, `wait`) | `send_signal()`, `terminate()`, `kill()` | fork, snapshots, drives; **best spawn candidate** (everything native) |
-| microsandbox 0.7 | **done**: `MicrosandboxProcessHandle` on `exec_stream()` | **done** (TTY + resize) | **done** (`signal`, `kill`) | ssh/sftp, fork, snapshots, metrics, logs; tests run on real microVMs locally (CI runners lack a usable hypervisor) |
-| e2b 2.64 | **done**: `commands.run(background=True, stdin=True)` | **done**: `pty.create()` (explicit commands are exec'd into its login shell after a screen clear) | **done**: SIGKILL native, other signals via `kill`; signal parsed from `signal: <name>` | `files.watch_dir`, `files.rename`, snapshots, fork, pause, metrics, `get_host` (ports), git |
-| modal 1.6 | `exec(...)` → `ContainerProcess` (stdin/stdout/stderr, `wait`, `poll`) | `exec(pty=True, pty_info=...)` | none per process; needs `kill` exec | `sandbox.filesystem` (`watch`, `copy_to_local`/`copy_from_local`), `snapshot_directory`, tunnels, connect tokens |
-| daytona 0.232 | session commands (`execute_session_command` async) + `send_session_command_input`, log streaming | `create_pty_session` / `resize_pty_session` / `kill_pty_session` | delete session only | **`create_ssh_access()`** (could reuse exxec's SSH `spawn()`), LSP servers, computer use, git, fork, snapshots |
-| sprites 0.7 | `command()` + `SpawnOptions(cwd, env, tty, rows, cols, detachable, session_id)` | `AsyncCmd.set_tty` / `set_tty_size`, `attach_session` | services: `signal_service` | **services** (`create_service`/`start`/`stop`/`signal`) fit long-running background processes; checkpoints |
-| hopx 0.5 | `commands.run(background=True, env, working_dir)`, `list_processes`, `kill_process` | single websocket shell (`terminal.connect`): no command/cwd/env | `kill_process(pid)` | desktop, jupyter sessions, preview URLs |
-| beam 0.2 | `process.exec()` → `SandboxProcess` (stdout/stderr/logs, `wait`), no stdin | none | `kill()` | `run_code` |
-| cloudflare | HTTP API (no SDK) | — | — | — |
+| local (+ srt) | yes | yes (POSIX) | real processes | no Python-level fork; process groups |
+| ssh | yes | yes | in-process asyncssh server | SSH signal + window-change requests |
+| docker | yes | yes | real container | exec API; signals via pidfile + `kill` |
+| microsandbox | yes | yes | real microVMs (local) | CI runners lack a usable hypervisor |
+| e2b | yes | yes | real sandboxes | PTY commands exec'd into e2b's login shell after a screen clear |
+| daytona | yes | yes | real sandboxes | via Daytona's SSH gateway; SIGTERM reports exit 1, not 143 |
+| beam | yes | no (Beam has none) | real sandboxes | no interactive stdin; sync SDK runs in threads |
+| vercel | yes | yes | SDK fakes only | credentials get HTTP 403; integration test skips |
+| modal | yes | yes | local stand-in for `exec` | no Modal credentials; wrappers for PID/TTY/resize |
+| sprites | no | own PTY manager | — | command I/O via sync file objects; no credentials |
+| hopx | no | own PTY manager | — | no PID/stdin/output stream for background commands |
+| cloudflare | no | no | — | needs a deployed Sandbox Worker (`base_url`) |
+| acp, pyodide, mock | n/a | n/a | — | protocol/test environments |
 
-Filesystems (upathtools): most sandbox filesystems already use native SDK file APIs
-(modal uses the new `sandbox.filesystem`). Gaps:
-- ~~microsandbox_fs shells out~~ — rewritten on `sandbox.fs` (upathtools 6d27200)
+Unused native process managers (beam, daytona, e2b, hopx, vercel) were removed;
+per-provider PTY managers remain only for sprites and hopx.
+
+Filesystems (upathtools): microsandbox_fs rewritten on `sandbox.fs` (1.21.0). Gaps:
 - e2b_fs: `files.rename` and `files.watch_dir` unused; `_glob`/`_grep` still TODO
 - vercel_fs uses `find`/`stat` via commands
-- watch APIs (e2b `watch_dir`, modal `filesystem.watch`) could back fsspec-level
-  change notifications
+- watch APIs (e2b `watch_dir`, modal `filesystem.watch`) could back change notifications
