@@ -57,6 +57,10 @@ modal = ["modal"]
 sprites = ["sprites-py"]
 ssh = ["asyncssh", "sshfs>=2026.8.0"]
 vercel = ["vercel"]
+vt = [
+    # libghostty-vt wheels exist for macOS and manylinux only
+    "pyghostty>=0.1.4; sys_platform != 'win32'",
+]
 
 [dependency-groups]
 dev = [

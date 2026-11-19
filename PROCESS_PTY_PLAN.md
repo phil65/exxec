@@ -1,6 +1,6 @@
 # Process / PTY / Terminal redesign
 
-Status: steps 1 and 2 are done; step 3 is done for local, ssh and docker.
+Status: steps 1, 2 and 4 are done; step 3 is done for local, ssh and docker.
 
 ## Problem
 
@@ -97,7 +97,13 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
      process API), then drop their PTY managers
    - unify `stream_command` timeout semantics across providers (docker builds
      `timeout None …` when no timeout is configured)
-4. Add `ScreenEmulator` (pyghostty extra) and `TerminalSession`.
+4. **Done** — `exxec.terminal` (optional `exxec[vt]` extra, pyghostty on macOS/Linux):
+   `ScreenEmulator` protocol + `GhosttyScreen`, `encode_key()`, and `TerminalSession`
+   (spawned PTY + emulator + broadcaster): `text()` / `scrollback()` / `cursor` /
+   `alternate_screen`, `send` / `send_line` / `send_keys` / `paste` (bracketed when
+   enabled), `wait_for(pattern)` / `wait_for_quiet()`, resize, and automatic answers
+   to terminal queries (cursor position, device attributes) unless a real terminal
+   is attached (`answer_queries=False`). Works on local, ssh and docker.
 5. Rename process-related "terminal" names to "process" (breaking; version bump).
    Remove the `EnvironmentTerminalManager` alias.
 

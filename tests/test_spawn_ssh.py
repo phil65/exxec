@@ -276,3 +276,15 @@ async def test_pty_manager_over_ssh(ssh_env: SshExecutionEnvironment) -> None:
     await manager.write(info.id, b"echo remote-$((6 * 7))\r")
     assert b"remote-42" in await read_until(manager.stream(info.id), b"remote-42")
     assert await manager.kill(info.id) is True
+
+
+async def test_terminal_session_over_ssh(ssh_env: SshExecutionEnvironment) -> None:
+    pytest.importorskip("pyghostty")
+    from exxec.terminal import TerminalSession
+
+    async with await TerminalSession.start(ssh_env, "sh") as term:
+        await term.send_line("echo over-$((40 + 2))")
+        await term.wait_for("over-42")
+        await term.resize(PtySize(rows=30, cols=100))
+        await term.send_line("stty size")
+        await term.wait_for("30 100")

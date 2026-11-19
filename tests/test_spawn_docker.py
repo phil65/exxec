@@ -191,3 +191,15 @@ async def test_pty_manager_in_container(docker_env: DockerExecutionEnvironment) 
     await manager.write(info.id, b"echo container-$((6 * 7))\r")
     assert b"container-42" in await read_until(manager.stream(info.id), b"container-42")
     assert await manager.kill(info.id) is True
+
+
+async def test_terminal_session_in_container(docker_env: DockerExecutionEnvironment) -> None:
+    pytest.importorskip("pyghostty")
+    from exxec.terminal import TerminalSession
+
+    async with await TerminalSession.start(docker_env, "python", ["-q"]) as term:
+        await term.wait_for(">>>")
+        await term.send_line("import platform; platform.system()")
+        await term.wait_for("'Linux'")
+        await term.send_keys("C-d")
+        assert await term.wait() == 0
