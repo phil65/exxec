@@ -21,10 +21,11 @@ posix_only = pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX shel
 PY = sys.executable
 
 
-async def test_lines_and_completion() -> None:
+async def test_lines_and_completion(tmp_path: Path) -> None:
+    script = tmp_path / "emit.py"
+    script.write_text("import sys\nsys.stdout.write('a\\r\\nb\\n\\nlast')\n")
     async with LocalExecutionEnvironment() as env:
-        script = "import sys; sys.stdout.write('a\\\\r\\\\nb\\\\n\\\\nlast')"
-        events = [event async for event in env.stream_command(f'"{PY}" -c "{script}"')]
+        events = [event async for event in env.stream_command(f'"{PY}" "{script}"')]
     lines = [event.data for event in events if isinstance(event, OutputEvent)]
     assert lines == ["a", "b", "", "last"]
     assert isinstance(events[-1], ProcessCompletedEvent)
