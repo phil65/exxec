@@ -1,6 +1,6 @@
 # Process / PTY / Terminal redesign
 
-Status: planned. Step 1 (process manager routing fix) is done.
+Status: steps 1 and 2 are done (step 2 for local, ssh and docker).
 
 ## Problem
 
@@ -78,9 +78,19 @@ bytes to subscribers (e.g. the OpenCode websocket). It provides:
    `stream_command`). Environments clean up running processes on exit.
    Known interim limitations of `StreamingProcessManager`: env default timeout applies;
    kill relies on provider cancellation handling.
-2. Introduce `ProcessHandle`, `spawn()` and `supports_pty`; port local, docker, ssh first.
-3. Rebuild `ProcessManager` and `PtyManager` on `spawn()`; migrate remaining providers;
-   drop per-provider PTY managers. Fix timeout semantics (explicit "no timeout").
+2. **Done** — `ProcessHandle` (`exxec.process_handle`), `ExecutionEnvironment.spawn()`
+   and the `supports_spawn` / `supports_pty` flags. Implemented for:
+   - local: pipes via asyncio subprocess; PTYs without a Python-level fork
+     (isolated helper calls `os.login_tty()` and execs), non-blocking master fd
+   - ssh: one session channel per process, SSH signal and window-change requests
+   - docker: exec API over the hijacked socket (demuxed pipe frames), signals via
+     pidfile + `kill` helper exec, exit code from `exec_inspect`
+   Also fixed along the way: SSH env connected after OS detection, used an outdated
+   sshfs private API, and leaked the filesystem's SSH connection.
+3. Rebuild `ProcessManager` and `PtyManager` on `spawn()` for `supports_spawn`
+   environments (keeping `StreamingProcessManager` as fallback); implement `spawn()` for
+   the remaining providers (e2b, modal, daytona, hopx, sprites, ...); drop per-provider
+   PTY managers. Fix `stream_command` timeout semantics (explicit "no timeout").
 4. Add `ScreenEmulator` (pyghostty extra) and `TerminalSession`.
 5. Rename process-related "terminal" names to "process" (breaking; version bump).
    Remove the `EnvironmentTerminalManager` alias.
