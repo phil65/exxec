@@ -20,7 +20,7 @@ from exxec.base import ExecutionEnvironment, OSType
 from exxec.beam_provider import BeamExecutionEnvironment
 from exxec.cloudflare_provider import CloudflareExecutionEnvironment
 from exxec.mock_provider import MockExecutionEnvironment, MockProcessManager, MockPtyManager
-from exxec.daytona_provider import DaytonaExecutionEnvironment, DaytonaPtyManager
+from exxec.daytona_provider import DaytonaExecutionEnvironment
 from exxec.docker_provider import DockerExecutionEnvironment
 from exxec.local_provider import LocalExecutionEnvironment
 from exxec.pyodide_provider import PyodideExecutionEnvironment
@@ -360,7 +360,6 @@ __all__ = [
     "CloudflareExecutionEnvironment",
     "DaytonaExecutionEnvironment",
     # PTY managers
-    "DaytonaPtyManager",
     "DockerExecutionEnvironment",
     "E2bExecutionEnvironment",
     "ExecutionEnvironment",

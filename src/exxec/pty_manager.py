@@ -66,7 +66,6 @@ class PtyManagerProtocol(Protocol):
     Implementations:
         - SpawnPtyManager: Any environment with `supports_pty`
         - ModalPtyManager: Uses Modal's PTYInfo
-        - DaytonaPtyManager: Uses Daytona's create_pty_session
     """
 
     async def create(
