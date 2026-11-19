@@ -175,6 +175,10 @@ async def test_signals_via_pid_file() -> None:
             assert handle.pid == sandbox.handles[0].pid
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="the local stand-in runs host tools; resize needs GNU `stty -F` (Modal runs Linux)",
+)
 async def test_pty_initial_size_and_resize_via_stty() -> None:
     async with LocalExecutionEnvironment() as env:
         sandbox = LocalModalSandbox(env)
@@ -201,8 +205,8 @@ async def test_pty_initial_size_and_resize_via_stty() -> None:
             iterator = handle.output()
             before = await read_until(iterator, b"ready")
             await handle.resize(PtySize(rows=44, cols=111))
-            after = b"".join([chunk async for chunk in iterator])
-            assert await handle.wait() == 4  # noqa: PLR2004
+            after = await read_until(iterator, b"resized", timeout=10)
+            assert await asyncio.wait_for(handle.wait(), timeout=10) == 4  # noqa: PLR2004
         assert sandbox.calls[0]["pty"] is True
     assert "tty True 33 99" in before.decode()
     assert "resized 44 111" in after.decode()
