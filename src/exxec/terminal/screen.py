@@ -88,7 +88,7 @@ class GhosttyScreen:
             ImportError: If pyghostty is not installed (install `exxec[vt]`)
         """
         try:
-            import pyghostty  # type: ignore[import-untyped]
+            import pyghostty
         except ImportError as e:
             msg = "Terminal emulation requires pyghostty: install `exxec[vt]`"
             raise ImportError(msg) from e

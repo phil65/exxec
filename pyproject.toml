@@ -123,6 +123,11 @@ module = ["acp", "acp.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# Untyped, and not installed on Windows (no libghostty-vt wheels).
+module = ["pyghostty", "pyghostty.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 # The daytona extra is only installable on Python < 3.14.
 module = ["daytona", "daytona.*"]
 ignore_missing_imports = true
