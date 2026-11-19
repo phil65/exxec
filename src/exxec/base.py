@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import os
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, ClassVar, Literal, Self
 
 
 if TYPE_CHECKING:
@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 
     from exxec.events import ExecutionEvent
     from exxec.models import ExecutionResult, ServerInfo
-    from exxec.pty_manager import PtyManagerProtocol
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtyManagerProtocol, PtySize
 
 
 OSType = Literal["Windows", "Darwin", "Linux"]
@@ -26,6 +27,12 @@ OSType = Literal["Windows", "Darwin", "Linux"]
 
 class ExecutionEnvironment(ABC):
     """Abstract base class for code execution environments."""
+
+    supports_spawn: ClassVar[bool] = False
+    """Whether `spawn()` is implemented for this environment."""
+
+    supports_pty: ClassVar[bool] = False
+    """Whether `spawn(pty=...)` can attach processes to a pseudo-terminal."""
 
     def __init__(
         self,
@@ -161,6 +168,46 @@ class ExecutionEnvironment(ABC):
         """Return a MicrosandboxFS instance for the sandbox."""
         msg = "VFS is not supported"
         raise NotImplementedError(msg)
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process inside the environment and return a handle to it.
+
+        This is the low-level primitive process managers and terminals build on.
+        Unlike `stream_command()`, no timeout is applied; the caller owns the
+        process lifetime (use the handle as an async context manager).
+
+        Args:
+            command: Program to execute when `args` is given, otherwise a shell
+                command line (pipes, redirects, etc. are supported)
+            args: Program arguments; passed without shell interpretation
+            cwd: Working directory (defaults to the environment's working directory)
+            env: Additional environment variables, merged over the environment's own
+            pty: Attach the process to a pseudo-terminal of this size. Requires
+                `supports_pty`. Output then contains raw terminal escape sequences.
+
+        Returns:
+            Handle to the running process
+
+        Raises:
+            NotImplementedError: If the environment does not support spawning
+                (see `supports_spawn`), or a PTY was requested without `supports_pty`
+        """
+        msg = f"{type(self).__name__} does not support spawn()"
+        raise NotImplementedError(msg)
+
+    def _check_spawn_pty(self, pty: PtySize | None) -> None:
+        """Raise if a PTY was requested but the environment cannot provide one."""
+        if pty is not None and not self.supports_pty:
+            msg = f"{type(self).__name__} does not support PTY processes"
+            raise NotImplementedError(msg)
 
     def get_pty_manager(self) -> PtyManagerProtocol:
         """Return a PTY manager for interactive terminal sessions.

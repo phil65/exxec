@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import os
 import platform
 import shutil
 import sys
@@ -30,7 +31,9 @@ if TYPE_CHECKING:
     from exxec.events import ExecutionEvent
     from exxec.local_provider.pty_manager import LocalPtyManager
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
     from exxec.process_manager import LocalProcessManager
+    from exxec.pty_manager import PtySize
 
 
 PYTHON_EXECUTABLES = [
@@ -45,6 +48,9 @@ PYTHON_EXECUTABLES = [
 
 class LocalExecutionEnvironment(ExecutionEnvironment):
     """Executes code in the same process or isolated subprocess."""
+
+    supports_spawn = True
+    supports_pty = sys.platform != "win32"
 
     def __init__(
         self,
@@ -302,6 +308,58 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             Wrapped argv
         """
         return argv
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a local process and return a handle to it.
+
+        With `args`, the program is executed directly after `wrap_argv()`;
+        otherwise `command` runs as a shell command line after `wrap_command()`.
+        Both hooks keep sandboxing subclasses in effect.
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments
+            cwd: Working directory (defaults to the environment's cwd)
+            env: Additional environment variables
+            pty: Attach to a pseudo-terminal of this size (POSIX only)
+
+        Returns:
+            Handle to the running process
+        """
+        from exxec.local_provider.process_handle import (
+            LocalPipeProcessHandle,
+            LocalPtyProcessHandle,
+        )
+
+        self._check_spawn_pty(pty)
+        work_dir = cwd or self.cwd
+        base_env = self.get_env()
+        if pty is not None:
+            pty_env = {**(base_env if base_env is not None else os.environ), **(env or {})}
+            pty_env.setdefault("TERM", "xterm-256color")
+            if args:
+                argv = self.wrap_argv([command, *args])
+            else:
+                argv = ["/bin/sh", "-c", self.wrap_command(command)]
+            return await LocalPtyProcessHandle.start(argv, cwd=work_dir, env=pty_env, size=pty)
+        pipe_env = (
+            {**(base_env if base_env is not None else os.environ), **env} if env else base_env
+        )
+        if args:
+            return await LocalPipeProcessHandle.start(
+                self.wrap_argv([command, *args]), None, cwd=work_dir, env=pipe_env
+            )
+        return await LocalPipeProcessHandle.start(
+            None, self.wrap_command(command), cwd=work_dir, env=pipe_env
+        )
 
     async def execute_command(
         self,
