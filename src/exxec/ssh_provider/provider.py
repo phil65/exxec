@@ -201,6 +201,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         """Create SSHFileSystem with proper event loop integration."""
         import asyncio
 
+        from fsspec.dircache import DirCache
         from sshfs import SSHFileSystem  # type: ignore[import-untyped]
         from sshfs.pools import SFTPSoftChannelPool  # type: ignore[import-untyped]
         from upathtools.filesystems.base.wrapper import WrapperFileSystem
@@ -211,7 +212,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         fs._loop = loop
         fs._intrans = False
         fs._transaction = None
-        fs.dircache = {}  # pyright: ignore[reportAttributeAccessIssue]
+        fs.dircache = DirCache()
         fs.active_executors = 0
         stack = AsyncExitStack()
         fs._stack = stack

@@ -63,7 +63,7 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         env_vars: dict[str, str] | None = None,
         inherit_env: bool = False,
         default_command_timeout: float | None = None,
-    ):
+    ) -> None:
         """Initialize Vercel sandbox environment.
 
         Args:

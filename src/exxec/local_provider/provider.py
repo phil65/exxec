@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 
 from anyenv.processes import create_process, create_shell_process
 
-from exxec.base import ExecutionEnvironment
+from exxec.base import ExecutionEnvironment, OSType
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.local_provider.utils import StreamCapture, find_executable
 from exxec.models import ExecutionResult
@@ -42,6 +42,17 @@ PYTHON_EXECUTABLES = [
     "python3.11",
     "python3.14",
 ]
+
+
+def _platform_os_type() -> OSType:
+    """Map `platform.system()` to the supported OS types (other Unixes count as Linux)."""
+    match platform.system():
+        case "Windows":
+            return "Windows"
+        case "Darwin":
+            return "Darwin"
+        case _:
+            return "Linux"
 
 
 class LocalExecutionEnvironment(ExecutionEnvironment):
@@ -92,7 +103,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.process: asyncio.subprocess.Process | None = None
         self.root_path = root_path
         # Local provider knows OS statically
-        self._os_type = platform.system()  # type: ignore[assignment]
+        self._os_type = _platform_os_type()
 
     async def __aenter__(self) -> Self:
         # Start tool server via base class

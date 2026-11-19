@@ -58,8 +58,8 @@ sprites = ["sprites-py"]
 ssh = ["asyncssh", "sshfs>=2026.8.0"]
 vercel = ["vercel"]
 vt = [
-    # libghostty-vt wheels exist for macOS and manylinux only
-    "pyghostty>=0.1.4; sys_platform != 'win32'",
+  # libghostty-vt wheels exist for macOS and manylinux only
+  "pyghostty>=0.1.4; sys_platform != 'win32'",
 ]
 
 [dependency-groups]
@@ -78,9 +78,8 @@ docs = [
   # Only add below (Copier)
 ]
 lint = [
-  "mypy; python_version >= '3.14'",
-  "mypy[faster-cache]; python_version < '3.14'",
   "ruff",
+  "ty",
   # Only add below (Copier)
 ]
 
@@ -108,29 +107,6 @@ allowed-commit-types = [
   "chore",
 ]
 docstring-style = "google"
-
-[tool.mypy]
-python_version = "3.13"
-pretty = true
-strict = true
-check_untyped_defs = true
-exclude = ["venv/", ".venv/", "tests/"]
-plugins = ["pydantic.mypy"]
-
-[[tool.mypy.overrides]]
-# `acp` ships with agentpool, which depends on exxec; it is not an exxec dependency.
-module = ["acp", "acp.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# Untyped, and not installed on Windows (no libghostty-vt wheels).
-module = ["pyghostty", "pyghostty.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# The daytona extra is only installable on Python < 3.14.
-module = ["daytona", "daytona.*"]
-ignore_missing_imports = true
 
 [tool.pyright]
 venvPath = "."
@@ -173,7 +149,7 @@ target-version = "py313"
 future-annotations = true
 select = [
   "A",  # Flake8-builtins
-  # "ANN",  # Flake8-Annotations
+  "ANN",  # Flake8-Annotations (enforces complete annotations; ty does not)
   # "ASYNC",  # Flake8-Async
   # "ARG",  # # Flake8-Unused-Arguments
   "B",  # flake8-bugbear
@@ -233,6 +209,7 @@ select = [
   "YTT",  # flake8-2020
 ]
 ignore = [
+  "ANN401",  # Dynamically typed expressions (Any) are allowed
   "C408",  # Unnecessary {obj_type} call (rewrite as a literal)
   "B905",  # zip() without an explicit strict= parameter
   "C901",  # {name} is too complex ({complexity} > {max_complexity})
@@ -302,19 +279,31 @@ max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "I001"]
-"scripts/*" = ["INP001"]
-"*tests/*" = ["D100"]
+"scripts/*" = ["INP001", "ANN"]
+"*tests/*" = ["D100", "ANN"]  # tests need not be fully annotated
+"duties.py" = ["ANN"]  # tooling, not package code
+"examples/**/*.py" = ["ANN"]
 
 [tool.ruff.format]
 preview = true
+
+[tool.ty.src]
+# `ty check` (hooks, CI, editors) type-checks the package code only.
+include = ["src"]
 
 [tool.ty.environment]
 python-version = "3.13"
 python-platform = "all"
 
+[tool.ty.analysis]
+# Platform/version-gated extras (pyghostty: not on Windows; daytona: < 3.14).
+# Still type-checked wherever installed.
+allowed-unresolved-imports = ["daytona.**", "pyghostty.**"]
+
 [tool.ty.rules]
-unresolved-import = "ignore"
-unused-type-ignore-comment = "ignore"
+# Narrowing an overridden class attribute (e.g. pydantic discriminators,
+# `Config` attributes) is an intentional pattern.
+incompatible-mutable-override = "ignore"
 
 [tool.uv]
 default-groups = ["dev", "lint", "docs"]

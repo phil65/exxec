@@ -165,6 +165,9 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             msg = "Docker environment not started"
             raise RuntimeError(msg)
         wrapped = self.container.get_wrapped_container()
+        if wrapped.client is None:
+            msg = "Docker container has no API client"
+            raise RuntimeError(msg)
         argv = [command, *args] if args else ["sh", "-c", command]
         merged_env = {**self.env_vars, **(env or {})}
         return await DockerProcessHandle.start(

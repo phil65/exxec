@@ -40,7 +40,9 @@ FAILED_TO_START_EXIT_CODE = 127
 class MicrosandboxProcessHandle(ProcessHandle):
     """A process running inside a microsandbox microVM."""
 
-    def __init__(self, exec_handle: ExecHandle, stdin: ExecSink | None, size: PtySize | None):
+    def __init__(
+        self, exec_handle: ExecHandle, stdin: ExecSink | None, size: PtySize | None
+    ) -> None:
         """Wrap a started exec stream.
 
         Args:

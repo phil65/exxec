@@ -203,6 +203,11 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
         async with websockets.connect(ws_url) as socket:
             await socket.send(message)
 
+    def _exec_env(self) -> dict[str, str | None] | None:
+        """Environment for `Sandbox.exec()` (which accepts None values to unset)."""
+        env = self.get_env()
+        return dict(env) if env else None
+
     def get_fs(self) -> ModalFS:
         """Return a ModalFS instance for the sandbox."""
         from upathtools.filesystems import ModalFS
@@ -251,7 +256,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             # Write script to sandbox using filesystem API
             await sandbox.filesystem.write_text.aio(script_content, script_path)
             cmd = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
+            process = await sandbox.exec.aio(*cmd, timeout=self.timeout, env=self._exec_env())
             await process.wait.aio()
             stdout = await process.stdout.read.aio() if process.stdout else ""
             stderr = await process.stderr.read.aio() if process.stderr else ""
@@ -328,7 +333,7 @@ class ModalExecutionEnvironment(ExecutionEnvironment):
             script_path = get_script_path(self.language)
             await sandbox.filesystem.write_text.aio(script_content, script_path)
             exec_cmd = _get_execution_command(self.language, script_path)
-            process = await sandbox.exec.aio(*exec_cmd, timeout=self.timeout, env=self.get_env())  # type: ignore[arg-type]
+            process = await sandbox.exec.aio(*exec_cmd, timeout=self.timeout, env=self._exec_env())
 
             async for line in process.stdout:
                 yield OutputEvent(process_id=process_id, data=line.rstrip("\n\r"), stream="stdout")

@@ -185,7 +185,7 @@ class MockExecutionEnvironment(ExecutionEnvironment):
             yield ProcessErrorEvent(
                 process_id=process_id,
                 error=result.error,
-                error_type=result.error_type,
+                error_type=result.error_type or "ExecutionError",
                 exit_code=result.exit_code or 1,
             )
         else:

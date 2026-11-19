@@ -394,4 +394,6 @@ result.returncode
             """Filesystem-specific callback wrapper."""
             return await self._send_request(method, params)
 
-        return PyodideFS(request_callback=fs_callback)
+        # PyodideFS inherits an abstract from_file() it cannot implement (upathtools base
+        # class mismatch); instantiation works at runtime since the base is no ABC.
+        return PyodideFS(request_callback=fs_callback)  # ty: ignore[abstract-class-instantiation]
