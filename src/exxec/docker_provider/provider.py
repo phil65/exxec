@@ -26,10 +26,15 @@ if TYPE_CHECKING:
     from exxec.docker_provider.pty_manager import DockerPtyManager
     from exxec.events import ExecutionEvent
     from exxec.models import Language, ServerInfo
+    from exxec.process_handle import ProcessHandle
+    from exxec.pty_manager import PtySize
 
 
 class DockerExecutionEnvironment(ExecutionEnvironment):
     """Executes code in a Docker container with HTTP tool callbacks."""
+
+    supports_spawn = True
+    supports_pty = True
 
     def __init__(
         self,
@@ -132,6 +137,47 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             msg = "Docker environment not started"
             raise RuntimeError(msg)
         return DirFileSystem(path=self.host_workdir, fs=AsyncLocalFileSystem())
+
+    async def spawn(
+        self,
+        command: str,
+        args: list[str] | None = None,
+        *,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        pty: PtySize | None = None,
+    ) -> ProcessHandle:
+        """Start a process in the container via `docker exec`.
+
+        Args:
+            command: Program (with `args`) or shell command line (without)
+            args: Program arguments, passed without shell interpretation
+            cwd: Working directory in the container (defaults to /workspace)
+            env: Additional environment variables, merged over `env_vars`
+            pty: Allocate a TTY of this size
+
+        Returns:
+            Handle to the running process
+
+        Raises:
+            RuntimeError: If the container has not been started
+        """
+        from exxec.docker_provider.process_handle import DockerProcessHandle
+
+        if not self.container:
+            msg = "Docker environment not started"
+            raise RuntimeError(msg)
+        wrapped = self.container.get_wrapped_container()
+        argv = [command, *args] if args else ["sh", "-c", command]
+        merged_env = {**self.env_vars, **(env or {})}
+        return await DockerProcessHandle.start(
+            wrapped.client.api,
+            str(wrapped.id),
+            argv,
+            cwd=cwd or "/workspace",
+            env=merged_env or None,
+            size=pty,
+        )
 
     def get_pty_manager(self) -> DockerPtyManager:
         """Return a DockerPtyManager for interactive terminal sessions."""
