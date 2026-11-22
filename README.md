@@ -9,7 +9,6 @@
 [![Implementation](https://img.shields.io/pypi/implementation/exxec.svg)](https://pypi.org/project/exxec/)
 [![Releases](https://img.shields.io/github/downloads/phil65/exxec/total.svg)](https://github.com/phil65/exxec/releases)
 [![Github Contributors](https://img.shields.io/github/contributors/phil65/exxec)](https://github.com/phil65/exxec/graphs/contributors)
-[![Github Discussions](https://img.shields.io/github/discussions/phil65/exxec)](https://github.com/phil65/exxec/discussions)
 [![Github Forks](https://img.shields.io/github/forks/phil65/exxec)](https://github.com/phil65/exxec/forks)
 [![Github Issues](https://img.shields.io/github/issues/phil65/exxec)](https://github.com/phil65/exxec/issues)
 [![Github Issues](https://img.shields.io/github/issues-pr/phil65/exxec)](https://github.com/phil65/exxec/pulls)
