@@ -171,7 +171,11 @@ class ExecutionEnvironment(ABC):
         ...
 
     def get_fs(self) -> AsyncFileSystem:
-        """Return a MicrosandboxFS instance for the sandbox."""
+        """Return an async fsspec filesystem for the environment.
+
+        Raises:
+            NotImplementedError: If the provider has no filesystem access.
+        """
         msg = "VFS is not supported"
         raise NotImplementedError(msg)
 
