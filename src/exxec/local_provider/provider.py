@@ -358,7 +358,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
         try:
             process = await create_shell_process(
-                command, stdout="pipe", stderr="pipe", env=self.get_env()
+                command, stdout="pipe", stderr="pipe", cwd=self.cwd, env=self.get_env()
             )
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=effective_timeout

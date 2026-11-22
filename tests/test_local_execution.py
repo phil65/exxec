@@ -1,8 +1,18 @@
 """Tests for LocalExecutionEnvironment."""
 
+from __future__ import annotations
+
+import os
+import sys
+from typing import TYPE_CHECKING
+
 import pytest
 
 from exxec import LocalExecutionEnvironment
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 EXPECTED_RESULT = 84
@@ -102,3 +112,12 @@ async def main():
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX shell syntax")
+async def test_execute_command_honours_env_cwd(tmp_path: Path) -> None:
+    """Like `stream_command`, `execute_command` runs in the environment's cwd."""
+    async with LocalExecutionEnvironment(cwd=str(tmp_path)) as env:
+        result = await env.execute_command("pwd")
+    assert result.exit_code == 0
+    assert os.path.realpath((result.stdout or "").strip()) == os.path.realpath(tmp_path)
