@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Self
 import uuid
 
 import anyenv
-import httpx
 
 from exxec.base import ExecutionEnvironment
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
@@ -24,6 +23,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
+    import httpx
     from upathtools.filesystems import CloudflareFS
 
     from exxec.events import ExecutionEvent
@@ -174,6 +174,8 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
     async def __aenter__(self) -> Self:
         """Setup Cloudflare sandbox session."""
         await super().__aenter__()
+        import httpx
+
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
 
         # Create the session
@@ -305,6 +307,8 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events in the Cloudflare sandbox."""
+        import httpx
+
         process_id = f"cf_{self.session_id}"
         wrapped_code = wrap_code(code, language=self.language)
         script_path = get_script_path(self.language)
@@ -416,6 +420,8 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Cloudflare sandbox."""
+        import httpx
+
         process_id = f"cf_cmd_{self.session_id}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
 
