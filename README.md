@@ -24,231 +24,152 @@
 [![PyUp](https://pyup.io/repos/github/phil65/exxec/shield.svg)](https://pyup.io/repos/github/phil65/exxec/)
 
 [Read the documentation!](https://phil65.github.io/exxec/)
+**One async API to run code and shell commands locally, in Docker, over SSH, or in cloud sandboxes.**
 
+exxec gives every backend the same interface: execute Python/JavaScript/TypeScript code,
+run and stream shell commands, spawn long-running processes (optionally on a PTY), and read
+and write files through an fsspec filesystem. Switch from local execution to Docker or E2B by
+changing one argument.
 
+## Installation
 
-### Basic Usage
+```bash
+pip install exxec
+```
 
-Use the `get_environment()` function to create execution environments:
+Cloud and container backends need their SDK, installed via extras:
+
+```bash
+pip install "exxec[docker]"        # or e2b, daytona, modal, beam, vercel, ssh, ...
+pip install "exxec[vt]"            # terminal emulation for TerminalSession
+```
+
+## Quickstart
 
 ```python
+import asyncio
+
 from exxec import get_environment
 
-# Local execution (same process)
-env = get_environment("local")
 
-# Subprocess execution (separate process when executing python code)
-env = get_environment("local", isolated=True)
-
-# Docker execution (containerized)
-env = get_environment("docker")
-
-# Execute code
-async with env:
-    result = await env.execute("""
-    async def main():
-        return "Hello from execution environment!"
-    """)
-    print(result.result)  # "Hello from execution environment!"
-```
-
-## Available Providers
-
-### Local Provider
-Executes code in the same Python process. Fastest option but offers no isolation.
-
-```python
-env = get_environment("local", timeout=30.0)
-```
-
-**Parameters:**
-- `timeout` (float): Execution timeout in seconds (default: 30.0)
-- `isolated` (bool): Whether to execute code in a separate process (default: False)
-- `language` (Language): Programming language (default: "python")
-
-
-### Docker Provider
-Executes code in Docker containers for strong isolation and reproducible environments.
-
-```python
-env = get_environment("docker", image="python:3.13-slim", timeout=60.0, language="python")
-```
-
-**Parameters:**
-- `lifespan_handler`: Tool server context manager (optional)
-- `image` (str): Docker image to use (default: "python:3.13-slim")
-- `timeout` (float): Execution timeout in seconds (default: 60.0)
-- `language` (Language): Programming language (default: "python")
-
-
-### Daytona Provider
-Executes code in remote Daytona sandboxes for cloud-based development environments.
-
-```python
-env = get_environment(
-    "daytona",
-    api_url="https://api.daytona.io",
-    api_key="your-api-key",
-    timeout=300.0,
-    keep_alive=False,
-)
-```
-
-**Parameters:**
-- `api_url` (str): Daytona API URL (optional, uses env vars if not provided)
-- `api_key` (str): API key for authentication (optional)
-- `target` (str): Target configuration (optional)
-- `image` (str): Container image (default: "python:3.13-slim")
-- `timeout` (float): Execution timeout in seconds (default: 300.0)
-- `keep_alive` (bool): Keep sandbox running after execution (default: False)
-
-
-### E2B Provider
-Executes code in E2B sandboxes for secure, ephemeral execution environments.
-
-```python
-env = get_environment("e2b", template="python", timeout=300.0, keep_alive=False, language="python")
-```
-
-**Parameters:**
-- `template` (str): E2B template to use (optional)
-- `timeout` (float): Execution timeout in seconds (default: 300.0)
-- `keep_alive` (bool): Keep sandbox running after execution (default: False)
-- `language` (Language): Programming language (default: "python")
-
-
-### Beam Provider
-Executes code in Beam cloud sandboxes for scalable, serverless execution environments.
-
-```python
-env = get_environment(
-    "beam", cpu=1.0, memory=128, keep_warm_seconds=600, timeout=300.0, language="python"
-)
-```
-
-**Parameters:**
-- `cpu` (float | str): CPU cores allocated to the container (default: 1.0)
-- `memory` (int | str): Memory allocated to the container in MiB (default: 128)
-- `keep_warm_seconds` (int): Seconds to keep sandbox alive, -1 for no timeout (default: 600)
-- `timeout` (float): Execution timeout in seconds (default: 300.0)
-- `language` (Language): Programming language (default: "python")
-
-
-### MCP Provider
-Executes Python code with Model Context Protocol support for AI integrations.
-
-```python
-env = get_environment(
-    "mcp", dependencies=["requests", "numpy"], allow_networking=True, timeout=30.0
-)
-```
-
-**Parameters:**
-- `dependencies` (list[str]): Python packages to install (optional)
-- `allow_networking` (bool): Allow network access (default: True)
-- `timeout` (float): Execution timeout in seconds (default: 30.0)
-
-
-## Code Execution Patterns
-
-All providers support two execution patterns:
-
-### 1. Main Function Pattern
-```python
-code = """
+async def main() -> None:
+    async with get_environment("local") as env:
+        # Run code: return a value from `main()` or assign `_result`
+        result = await env.execute("""
 async def main():
-    # Your code here
-    return "result"
-"""
+    return "Hello from exxec!"
+""")
+        print(result.success, result.result)  # True Hello from exxec!
+
+        # Run a shell command
+        cmd = await env.execute_command("echo hi")
+        print(cmd.exit_code, cmd.stdout)  # 0 hi
+
+        # Stream a command's output line by line
+        async for line in env.execute_command_stream("echo a; echo b"):
+            print(line)
+
+
+asyncio.run(main())
 ```
 
-### 2. Result Variable Pattern
-```python
-code = """
-import math
-_result = math.pi * 2
-"""
-```
+Swap `"local"` for `"docker"`, `"e2b"`, `"modal"`, ... (with the matching extra installed and
+credentials configured); the rest of the code stays the same.
 
-## Error Handling
+## Providers
 
-Execution results include comprehensive error information:
+| Provider | `get_environment()` name | Extra | `spawn()` | PTY |
+|---|---|---|---|---|
+| Local machine (in-process or `isolated=True` subprocess) | `local` | none | yes | yes (not on Windows) |
+| Anthropic sandbox-runtime (`srt` CLI) | `srt` | none (needs `srt`) | yes | yes (not on Windows) |
+| Pyodide via Deno | `pyodide` | none (needs `deno`) | | |
+| Docker (testcontainers) | `docker` | `docker` | yes | yes |
+| SSH | `ssh` | `ssh` | yes | yes |
+| E2B | `e2b` | `e2b` | yes | yes |
+| Daytona | `daytona` | `daytona` | yes | yes |
+| Modal | `modal` | `modal` | yes | yes |
+| Vercel Sandbox | `vercel` | `vercel` | yes | yes |
+| Microsandbox | `microsandbox` | `microsandbox` | yes | yes |
+| Beam | `beam` | `beam` | yes | |
+| Cloudflare Sandbox (Workers HTTP API) | `cloudflare` | `cloudflare` | | |
+| HopX | `hopx` | `hopx` | | PTY manager only |
+| Sprites (Fly.io) | `sprites` | `sprites` | | PTY manager only |
 
-```python
-async with env:
-    result = await env.execute(code)
-    if result.success:
-        print(f"Result: {result.result}")
-        print(f"Duration: {result.duration:.3f}s")
-    else:
-        print(f"Error: {result.error}")
-        print(f"Error Type: {result.error_type}")
-```
+The classes are importable directly as well (`LocalExecutionEnvironment`,
+`DockerExecutionEnvironment`, `E2bExecutionEnvironment`, ...). `get_environment()` has typed
+overloads, so your editor shows each provider's options. `MockExecutionEnvironment` is
+available for tests.
 
-## Multi-Language Support
+## Features
 
-Some providers support multiple programming languages:
+### Code execution
 
-```python
-# JavaScript execution
-env = get_environment("subprocess", language="javascript", executable="node")
-
-# TypeScript execution
-env = get_environment("docker", language="typescript", image="node:18")
-```
-
-## Advanced Usage
-
-### Context Managers
-All environments are async context managers for proper resource cleanup:
-
-```python
-async with get_environment("docker") as env:
-    result1 = await env.execute(code1)
-    result2 = await env.execute(code2)  # Reuses same container
-# Container automatically cleaned up
-```
-
-### Custom Configurations
-Each provider supports environment-specific customization:
+`execute()` runs a snippet and returns an `ExecutionResult` with `success`, `result`,
+`duration`, `stdout`, `stderr`, `error` and `error_type`. The snippet either defines
+`main()` (sync or async), whose return value becomes `result`, or assigns `_result`:
 
 ```python
-# Docker with custom image and networking
-env = get_environment("docker", image="tensorflow/tensorflow:latest-py3", timeout=600.0)
-
-# Subprocess with specific Python version
-env = get_environment("subprocess", executable="/usr/bin/python3.11", timeout=120.0)
+result = await env.execute("import math\n_result = math.pi * 2")
+if not result.success:
+    print(result.error_type, result.error)
 ```
 
-### Streaming Output
+`stream_code()` and `stream_command()` yield typed events (`ProcessStartedEvent`,
+`OutputEvent`, `ProcessCompletedEvent`, `ProcessErrorEvent`); `execute_stream()` and
+`execute_command_stream()` yield plain output lines.
 
-Some providers support streaming output line by line, useful for long-running processes:
+### Processes and terminals
+
+`spawn()` starts a process and returns a `ProcessHandle` (output iterator, `write`, `wait`,
+`kill`, `resize`). With `pty=PtySize(...)` the process runs on a pseudo-terminal.
+`TerminalSession` (extra `vt`) adds an emulated screen, which lets you drive interactive programs:
 
 ```python
-from exxec import get_environment
+from exxec import LocalExecutionEnvironment
+from exxec.terminal import TerminalSession
 
-# Stream output from subprocess execution
-env = get_environment("subprocess")
-
-async with env:
-    async for line in env.execute_stream("""
-    import time
-    for i in range(5):
-        print(f"Processing step {i+1}...")
-        time.sleep(1)
-    print("Done!")
-    """):
-        print(f"Live output: {line}")
-
-# Also works with Docker execution
-env = get_environment("docker")
-async with env:
-    async for line in env.execute_stream(code):
-        # Process each line as it's produced
-        if "ERROR" in line:
-            print(f"⚠️  {line}")
-        else:
-            print(f"✓ {line}")
+async with (
+    LocalExecutionEnvironment() as env,
+    await TerminalSession.start(env, "python3", ["-q"]) as term,
+):
+    await term.wait_for(">>>")
+    await term.send_line("6 * 7")
+    await term.wait_for("42")
+    print(term.text())
+    await term.send_keys("C-d")
 ```
 
-**Supported providers:** `docker`, `local`, `beam`, `e2b`, `modal`, `vercel`, `ssh`, `daytona`
+`env.process_manager` manages background processes and `env.get_pty_manager()` manages PTY sessions.
+
+### Filesystem
+
+`env.get_fs()` returns an async fsspec filesystem for the environment (local, Docker, SSH,
+and most sandboxes); `set_file_content()` and `get_file_content()` are shortcuts.
+
+### Configuration models
+
+`exxec_config` holds lightweight pydantic models for every provider, a discriminated union
+(`ExecutionEnvironmentConfig`) for config files, and `get_provider()` to build the environment:
+
+```python
+from exxec_config import DockerExecutionEnvironmentConfig
+
+config = DockerExecutionEnvironmentConfig(image="python:3.13-slim", dependencies=["numpy"])
+async with config.get_provider() as env:
+    ...
+```
+
+### Remote callables and PEP 723 scripts
+
+`create_remote_callable(func, DockerExecutionEnvironment)` wraps a function so that each call
+runs inside a fresh environment, with dependencies inferred from its module.
+`ExecutionEnvironment.execute_script()` runs a script with PEP 723 inline metadata and installs
+its declared dependencies.
+
+## Documentation
+
+Full API reference: [phil65.github.io/exxec](https://phil65.github.io/exxec/)
+
+## License
+
+MIT
