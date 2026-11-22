@@ -57,7 +57,7 @@ def get_environment(
     provider: Literal["local"],
     *,
     lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
-    timeout: float = 30.0,
+    default_command_timeout: float | None = 30.0,
     isolated: bool = False,
     executable: str | None = None,
     language: Language = "python",
@@ -68,9 +68,9 @@ def get_environment(
 def get_environment(
     provider: Literal["docker"],
     *,
-    lifespan_handler: AbstractAsyncContextManager[ServerInfo],
+    lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
     image: str = "python:3.13-slim",
-    timeout: float = 60.0,
+    default_command_timeout: float | None = 60.0,
     language: Language = "python",
 ) -> DockerExecutionEnvironment: ...
 
@@ -86,7 +86,7 @@ def get_environment(
     password: str | None = None,
     private_key_path: str | None = None,
     port: int = 22,
-    timeout: float = 60.0,
+    default_command_timeout: float | None = 60.0,
     language: Language = "python",
     cwd: str | None = None,
     **ssh_kwargs: Any,
@@ -167,11 +167,10 @@ def get_environment(
     provider: Literal["microsandbox"],
     *,
     lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
-    server_url: str | None = None,
-    namespace: str = "default",
+    namespace: str = "exxec",
     api_key: str | None = None,
     memory: int = 512,
-    cpus: float = 1.0,
+    cpus: int = 1,
     timeout: float = 180.0,
     language: Language = "python",
     image: str | None = None,
@@ -204,7 +203,7 @@ def get_environment(
     lifespan_handler: AbstractAsyncContextManager[ServerInfo] | None = None,
     sandbox_config: SandboxConfig | None = None,
     dependencies: list[str] | None = None,
-    timeout: float = 30.0,
+    default_command_timeout: float | None = None,
     executable: str | None = None,
     language: Language = "python",
 ) -> SRTExecutionEnvironment: ...
@@ -285,18 +284,18 @@ def get_environment(  # noqa: PLR0911
 
     Example:
         ```python
-        # Local execution with timeout
-        env = get_environment("local", timeout=60.0)
+        # Local execution with a default command timeout
+        env = get_environment("local", default_command_timeout=60.0)
 
         # Docker with custom image
-        env = get_environment("docker", lifespan_handler=handler, image="python:3.11")
+        env = get_environment("docker", image="python:3.13-slim")
 
         # SSH with password auth
         env = get_environment("ssh", host="remote.server.com", username="user", password="pass")
 
         # SSH with key auth
         env = get_environment("ssh", host="remote.server.com", username="user",
-                            private_key_path="~/.ssh/id_rsa", timeout=120.0)
+                            private_key_path="~/.ssh/id_rsa", default_command_timeout=120.0)
 
         # Daytona with specific config
         env = get_environment("daytona", api_url="https://api.daytona.io", timeout=600.0)
@@ -311,7 +310,7 @@ def get_environment(  # noqa: PLR0911
         env = get_environment("vercel", timeout=600)
 
         # Microsandbox with custom resources
-        env = get_environment("microsandbox", memory=1024, cpus=2.0, language="javascript")
+        env = get_environment("microsandbox", memory=1024, cpus=2, language="javascript")
 
         # Modal with GPU and volumes
         env = get_environment("modal", gpu="T4", memory=2048, app_name="my-app")
