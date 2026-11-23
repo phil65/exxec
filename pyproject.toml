@@ -2,7 +2,7 @@
 
 [project]
 name = "exxec"
-version = "0.10.0"
+version = "0.10.1"
 description = "Unified async API to run code and commands locally, in Docker, over SSH, or in cloud sandboxes"
 readme = "README.md"
 requires-python = ">=3.13"
