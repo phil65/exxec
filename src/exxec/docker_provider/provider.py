@@ -89,7 +89,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
 
         install_commands: list[str] = []  # Build install commands
         if self.server_info:
-            install_commands.append("pip install httpx")
+            install_commands.append("pip install httpx2")
         if self.dependencies:
             deps_str = " ".join(self.dependencies)
             match self.language:

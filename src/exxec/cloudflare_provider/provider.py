@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from types import TracebackType
 
-    import httpx
+    import httpx2
     from upathtools.filesystems import CloudflareFS
 
     from exxec.events import ExecutionEvent
@@ -116,7 +116,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
         self.session_id = session_id or f"exxec-{uuid.uuid4().hex[:12]}"
         self.timeout = timeout
         self.language: Language = language
-        self._client: httpx.AsyncClient | None = None
+        self._client: httpx2.AsyncClient | None = None
         # Cloudflare sandboxes run Linux
         self._os_type = "Linux"
 
@@ -141,7 +141,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
             working_dir=self.cwd or "/workspace",
         )
 
-    def _ensure_client(self) -> httpx.AsyncClient:
+    def _ensure_client(self) -> httpx2.AsyncClient:
         """Ensure the HTTP client is initialized."""
         if self._client is None:
             raise NotInitializedError("CloudFlare")
@@ -174,9 +174,9 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
     async def __aenter__(self) -> Self:
         """Setup Cloudflare sandbox session."""
         await super().__aenter__()
-        import httpx
+        import httpx2
 
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(self.timeout))
+        self._client = httpx2.AsyncClient(timeout=httpx2.Timeout(self.timeout))
 
         # Create the session
         payload: dict[str, Any] = {
@@ -307,7 +307,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events in the Cloudflare sandbox."""
-        import httpx
+        import httpx2
 
         process_id = f"cf_{self.session_id}"
         wrapped_code = wrap_code(code, language=self.language)
@@ -373,7 +373,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
 
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=0)
 
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             # Fall back to regular execution on HTTP errors
             async for event in self._stream_fallback(command, process_id):
                 yield event
@@ -420,7 +420,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
         """Execute a terminal command and stream events in the Cloudflare sandbox."""
-        import httpx
+        import httpx2
 
         process_id = f"cf_cmd_{self.session_id}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
@@ -470,7 +470,7 @@ class CloudflareExecutionEnvironment(ExecutionEnvironment):
 
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=0)
 
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             async for event in self._stream_fallback(command, process_id):
                 yield event
         except Exception as e:  # noqa: BLE001
