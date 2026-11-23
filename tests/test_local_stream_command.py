@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX shell syntax")
 PY = sys.executable
+WAIT_TIMEOUT = 0x102
+SYNCHRONIZE_AND_QUERY = 0x00100000 | 0x1000
 
 
 async def test_lines_and_completion(tmp_path: Path) -> None:
@@ -83,3 +85,49 @@ async def test_slow_consumer_does_not_hit_timeout_in_consumer_code() -> None:
             await asyncio.sleep(0.05)  # consumer work must never be cancelled by the timeout
             events.append(event)
     assert isinstance(events[-1], ProcessCompletedEvent)
+
+
+def _alive(pid: int) -> bool:
+    """Whether a process runs (without signalling it: os.kill(pid, 0) kills on Windows)."""
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(SYNCHRONIZE_AND_QUERY, False, pid)
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+async def test_closing_stream_kills_descendants_on_every_platform(tmp_path: Path) -> None:
+    """A cancelled command leaves nothing behind: not the shell, not what it started."""
+    script = tmp_path / "spawner.py"
+    script.write_text(
+        "import subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        "print(child.pid, flush=True)\n"
+        "time.sleep(30)\n"
+    )
+    async with LocalExecutionEnvironment(default_command_timeout=None) as env:
+        stream = env.stream_command(f'"{PY}" "{script}"')
+        grandchild = None
+        async for event in stream:
+            if isinstance(event, OutputEvent):
+                grandchild = int(event.data)
+                break
+        assert grandchild is not None
+        assert _alive(grandchild)
+        await stream.aclose()  # type: ignore[attr-defined]
+    for _ in range(50):
+        if not _alive(grandchild):
+            break
+        await asyncio.sleep(0.1)
+    assert not _alive(grandchild)

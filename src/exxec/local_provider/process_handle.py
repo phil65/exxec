@@ -130,12 +130,9 @@ class LocalPipeProcessHandle(ProcessHandle):
         if self._process.returncode is not None:
             return
         if sys.platform == "win32":
-            # Windows has no process groups/POSIX signals for subprocesses.
-            with contextlib.suppress(ProcessLookupError):
-                if sig == "KILL":
-                    self._process.kill()
-                else:
-                    self._process.terminate()
+            # No process groups or POSIX signals: end the whole tree (the shell and what
+            # it started), forcibly, since console programs ignore polite requests.
+            await _kill_tree_windows(self._process)
             return
         _signal_group(self._process.pid, SIGNAL_NUMBERS[sig])
 
@@ -315,6 +312,26 @@ class LocalPtyProcessHandle(ProcessHandle):
             if not future.done():
                 future.set_result(None)
         os.close(self._fd)
+
+
+async def _kill_tree_windows(process: asyncio.subprocess.Process) -> None:
+    """Kill a Windows process and its descendants (``taskkill /T /F``)."""
+    try:
+        killer = await asyncio.create_subprocess_exec(
+            "taskkill",
+            "/T",
+            "/F",
+            "/PID",
+            str(process.pid),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await killer.wait()
+    except OSError:  # No taskkill: at least the process itself
+        pass
+    if process.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
 
 
 def _signal_group(pid: int, signum: int) -> None:
