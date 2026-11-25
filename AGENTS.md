@@ -71,7 +71,7 @@ uv run pytest -m integration         # tests needing cloud credentials
 uv run ruff check . && uv run ruff format --check .
 uv run ty check                      # type check src/ (warnings fail CI)
 uv run deptry src                    # dependency declarations
-uv run mkdocs-mknodes build          # docs
+uv run mknodes build          # docs
 # duties.py defines lint, lint_check, test, build, serve, update, version (duty tasks)
 ```
 
