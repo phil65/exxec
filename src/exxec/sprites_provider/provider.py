@@ -42,8 +42,7 @@ def _get_execution_command(language: Language, script_path: str) -> list[str]:
 
 async def _run_in_thread[T](func: Callable[..., T], *args: Any) -> T:
     """Run a sync function in a thread to avoid blocking the event loop."""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, func, *args)
+    return await asyncio.to_thread(func, *args)
 
 
 class SpritesExecutionEnvironment(ExecutionEnvironment):

@@ -8,7 +8,7 @@ import inspect
 import io
 import shutil
 import sys
-from typing import TYPE_CHECKING, AnyStr, TextIO
+from typing import TYPE_CHECKING, TextIO
 
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ class StreamCapture(io.StringIO):
         self.original_stream = original_stream
         self.queue = queue
 
-    def write(self, s: AnyStr) -> int:
+    def write[S: (str, bytes)](self, s: S) -> int:
         """Capture and forward output to a queue."""
         text = s if isinstance(s, str) else s.decode()
         result = self.original_stream.write(text)
