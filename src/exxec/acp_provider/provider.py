@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
 
-    from acp import TerminalHandle
-    from acp.agent.acp_requests import ACPRequests
+    from aclientp import TerminalHandle
+    from aclientp.agent.acp_requests import ACPRequests
     from anyenv.process_manager import ProcessManagerProtocol
     from fsspec.asyn import AsyncFileSystem  # type: ignore[import-untyped]
 
