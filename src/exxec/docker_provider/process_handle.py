@@ -159,7 +159,7 @@ class DockerProcessHandle(ProcessHandle):
         loop = asyncio.get_running_loop()
         try:
             return await loop.sock_recv(self._sock, READ_CHUNK_SIZE)
-        except (ConnectionResetError, OSError):
+        except ConnectionResetError, OSError:
             if self._sock_closed:
                 return b""
             raise

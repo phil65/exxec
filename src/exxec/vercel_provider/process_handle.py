@@ -194,7 +194,7 @@ class VercelInteractiveHandle(ProcessHandle):
         while True:
             try:
                 yield await self._session.stream.receive(READ_CHUNK_SIZE)
-            except (anyio.EndOfStream, anyio.ClosedResourceError):
+            except anyio.EndOfStream, anyio.ClosedResourceError:
                 return
 
     async def write(self, data: bytes) -> None:

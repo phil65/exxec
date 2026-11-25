@@ -139,7 +139,7 @@ def create_remote_callable[R, **CallableP, **EnvP](
             # Use get_type_hints to resolve string annotations to actual types
             type_hints = get_type_hints(callable_obj)
             return_type = type_hints.get("return")
-        except (NameError, AttributeError):
+        except NameError, AttributeError:
             # Fallback to raw annotations if resolution fails
             return_type = (
                 callable_obj.__annotations__.get("return")
