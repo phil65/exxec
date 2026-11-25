@@ -5,7 +5,7 @@ name = "exxec"
 version = "0.10.1"
 description = "Unified async API to run code and commands locally, in Docker, over SSH, or in cloud sandboxes"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -33,7 +33,6 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Topic :: Software Development",
   "Topic :: Utilities",
@@ -138,7 +137,7 @@ docstring-style = "google"
 [tool.pyright]
 venvPath = "."
 venv = ".venv"
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 pythonPlatform = "All"
 typeCheckingMode = "basic"
 deprecateTypingAliases = true
@@ -170,7 +169,7 @@ asyncio_default_fixture_loop_scope = "function"
 [tool.ruff]
 line-length = 100
 extend-exclude = ["docs"]
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 future-annotations = true
@@ -319,7 +318,7 @@ preview = true
 include = ["src"]
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.14"
 python-platform = "all"
 
 [tool.ty.analysis]
