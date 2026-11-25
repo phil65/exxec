@@ -86,6 +86,25 @@ uv run mkdocs-mknodes build          # docs
 - Optional provider SDKs are imported lazily inside methods, never at module level:
   `import exxec` must work without any extra installed (it imports all provider modules).
 
+## Specs
+
+Remote sandbox APIs, used through each vendor's Python SDK (versions in `[project.optional-dependencies]`). Local backends (local, docker via testcontainers, ssh, mock) are not listed.
+
+| Spec | URL | Targets | Code | Update check |
+|---|---|---|---|---|
+| ACP terminals (`terminal/*` client methods) | https://agentclientprotocol.com/protocol/terminals | unpinned (tracks latest) | `src/exxec/acp_provider/` | https://github.com/agentclientprotocol/agent-client-protocol/releases |
+| Beam sandboxes (`beam-client>=0.2.187`) | https://docs.beam.cloud/v2/sandbox/overview | unpinned (tracks latest SDK) | `src/exxec/beam_provider/` | same URL |
+| Cloudflare Sandbox SDK (HTTP to a Worker) | https://developers.cloudflare.com/sandbox/ | unpinned (tracks latest) | `src/exxec/cloudflare_provider/` | same URL |
+| Daytona (`daytona<2`) | https://www.daytona.io/docs/ | daytona SDK 1.x (2.x is Daytona Cloud only) | `src/exxec/daytona_provider/` | same URL |
+| E2B (`e2b>=2.0.0`) | https://e2b.dev/docs | unpinned (tracks latest SDK) | `src/exxec/e2b_provider/` | same URL |
+| HopX (`hopx-ai`) | https://docs.hopx.ai/ | unpinned (tracks latest SDK) | `src/exxec/hopx_provider/` | same URL |
+| microsandbox (`microsandbox`) | https://docs.microsandbox.dev/ | unpinned (tracks latest SDK) | `src/exxec/microsandbox_provider/` | same URL |
+| Modal Sandboxes (`modal`) | https://modal.com/docs/guide/sandbox | unpinned (tracks latest SDK) | `src/exxec/modal_provider/` | same URL |
+| Pyodide (run under Deno) | https://pyodide.org/en/stable/ | unpinned (tracks latest) | `src/exxec/pyodide_provider/` | same URL |
+| Sprites (`sprites-py`) | https://docs.sprites.dev/ | unpinned (tracks latest SDK) | `src/exxec/sprites_provider/` | same URL |
+| Anthropic sandbox-runtime (`srt` CLI) | https://github.com/anthropic-experimental/sandbox-runtime | unpinned (tracks latest) | `src/exxec/srt_provider/` | same URL (releases) |
+| Vercel Sandbox (`vercel`) | https://vercel.com/docs/vercel-sandbox | unpinned (tracks latest SDK) | `src/exxec/vercel_provider/` | same URL |
+
 ## Pitfalls
 
 - Copier-managed project (`.copier-answers.yml`, template `copier-phil65`): workflows,

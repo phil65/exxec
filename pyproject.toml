@@ -55,6 +55,18 @@ Documentation = "https://phil65.github.io/exxec/"
 Homepage = "https://github.com/phil65/exxec"
 Issues = "https://github.com/phil65/exxec/issues"
 Source = "https://github.com/phil65/exxec"
+"Spec: ACP terminals" = "https://agentclientprotocol.com/protocol/terminals"
+"Spec: Beam" = "https://docs.beam.cloud/v2/sandbox/overview"
+"Spec: Cloudflare Sandbox" = "https://developers.cloudflare.com/sandbox/"
+"Spec: Daytona" = "https://www.daytona.io/docs/"
+"Spec: E2B" = "https://e2b.dev/docs"
+"Spec: HopX" = "https://docs.hopx.ai/"
+"Spec: Modal Sandboxes" = "https://modal.com/docs/guide/sandbox"
+"Spec: Pyodide" = "https://pyodide.org/en/stable/"
+"Spec: Sprites" = "https://docs.sprites.dev/"
+"Spec: Vercel Sandbox" = "https://vercel.com/docs/vercel-sandbox"
+"Spec: microsandbox" = "https://docs.microsandbox.dev/"
+"Spec: sandbox-runtime" = "https://github.com/anthropic-experimental/sandbox-runtime"
 
 [project.optional-dependencies]
 beam = ["beam-client>=0.2.187"]
