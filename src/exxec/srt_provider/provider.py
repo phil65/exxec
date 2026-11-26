@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import os
 from pathlib import Path
 import shlex
 import tempfile
@@ -93,7 +94,8 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
     def _create_settings_file(self) -> Path:
         """Create temporary srt settings file."""
         settings = self.sandbox_config.to_srt_settings()
-        _fd, path_str = tempfile.mkstemp(suffix=".json", prefix="srt-settings-")
+        fd, path_str = tempfile.mkstemp(suffix=".json", prefix="srt-settings-")
+        os.close(fd)
         path = Path(path_str)
         path.write_text(json.dumps(settings, indent=2))
         return path

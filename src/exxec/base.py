@@ -89,7 +89,12 @@ class ExecutionEnvironment(ABC):
             self.server_info = await self.lifespan_handler.__aenter__()
         # Detect OS type if not already set by subclass
         if self._os_type is None:
-            self._os_type = await self._detect_os_type()
+            try:
+                self._os_type = await self._detect_os_type()
+            except BaseException as e:
+                if self.lifespan_handler:
+                    await self.lifespan_handler.__aexit__(type(e), e, e.__traceback__)
+                raise
         return self
 
     async def __aexit__(
@@ -101,13 +106,15 @@ class ExecutionEnvironment(ABC):
         """Cleanup (stop server, kill process, etc.)."""
         from exxec.process_manager import BaseProcessManager
 
-        if isinstance(self._process_manager, BaseProcessManager):
-            await self._process_manager.cleanup()
-        if self._spawn_pty_manager is not None:
-            await self._spawn_pty_manager.cleanup()
-        # Cleanup server if provided
-        if self.lifespan_handler:
-            await self.lifespan_handler.__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            if isinstance(self._process_manager, BaseProcessManager):
+                await self._process_manager.cleanup()
+            if self._spawn_pty_manager is not None:
+                await self._spawn_pty_manager.cleanup()
+        finally:
+            # Cleanup server if provided, even if the cleanup above failed
+            if self.lifespan_handler:
+                await self.lifespan_handler.__aexit__(exc_type, exc_val, exc_tb)
 
     @property
     def process_manager(self) -> ProcessManagerProtocol:
