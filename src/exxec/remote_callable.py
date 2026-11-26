@@ -1,12 +1,13 @@
 """Remote callable wrapper utilities."""
 
+import annotationlib
 import importlib.metadata
 import inspect
 import json
 import shlex
 import sys
 import textwrap
-from typing import TYPE_CHECKING, Any, get_type_hints
+from typing import TYPE_CHECKING, Any, ForwardRef, get_type_hints
 
 import anyenv
 
@@ -134,16 +135,14 @@ def create_remote_callable[R, **CallableP, **EnvP](
         func_name = import_path.split(".")[-1]
     else:
         try:  # Capture return type annotation for type-safe deserialization
-            # Use get_type_hints to resolve string annotations to actual types
-            type_hints = get_type_hints(callable_obj)
+            # FORWARDREF: names imported only under TYPE_CHECKING become ForwardRefs
+            # instead of raising NameError (annotations are evaluated lazily, PEP 649)
+            type_hints = get_type_hints(callable_obj, format=annotationlib.Format.FORWARDREF)
             return_type = type_hints.get("return")
-        except NameError, AttributeError:
-            # Fallback to raw annotations if resolution fails
-            return_type = (
-                callable_obj.__annotations__.get("return")
-                if hasattr(callable_obj, "__annotations__")
-                else None
-            )
+        except NameError, AttributeError, TypeError:
+            return_type = None
+        if isinstance(return_type, str | ForwardRef):
+            return_type = None  # unresolvable: parse the result without validation
 
         module = callable_obj.__module__
         if hasattr(callable_obj, "__qualname__"):
