@@ -82,3 +82,22 @@ def build_spawn_command_line(
     """
     line = f"exec {shlex.join([command, *args])}" if args else command
     return build_remote_command_line(line, cwd, env)
+
+
+def with_timeout(command_line: str, timeout: float | None) -> str:
+    """Limit a shell command line's run time with coreutils `timeout`.
+
+    The line runs in its own `sh -c`, so builtins (`cd`, `export`) and compound
+    commands (`a && b`) work and are limited as a whole. Exit code 124 means the
+    limit was hit.
+
+    Args:
+        command_line: Shell command line
+        timeout: Limit in seconds, None for no limit (the line is returned unchanged)
+
+    Returns:
+        POSIX shell command line
+    """
+    if timeout is None:
+        return command_line
+    return f"timeout {timeout:g} sh -c {shlex.quote(command_line)}"

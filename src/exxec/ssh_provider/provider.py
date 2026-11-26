@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import contextlib
 from contextlib import AsyncExitStack
+import shlex
 import time
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from exxec.base import ExecutionEnvironment
+from exxec.command_line import build_remote_command_line, with_timeout
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
@@ -111,18 +113,19 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         return self.connection
 
     def _prepend_env_vars(self, command: str) -> str:
-        """Prepend environment variable exports to a command."""
-        env = self.get_env()
-        if not env:
-            return command
-        exports = " ".join(f"{k}={v!r}" for k, v in env.items())
-        return f"env {exports} {command}"
+        """Prepend (shell-quoted) environment variable exports to a command line."""
+        return build_remote_command_line(command, None, self.get_env() or None)
 
-    async def run(self, command: str) -> SSHCompletedProcess:
-        """Run a command on the remote machine with login shell."""
+    async def run(self, command: str, *, input: str | None = None) -> SSHCompletedProcess:  # noqa: A002
+        """Run a command line on the remote machine with login shell.
+
+        Args:
+            command: Shell command line
+            input: Data for the command's stdin
+        """
         connection = self._ensure_connected()
         command = self._prepend_env_vars(command)
-        return await connection.run(wrap_command(command))
+        return await connection.run(wrap_command(command), input=input)
 
     async def __aenter__(self) -> Self:
         """Establish SSH connection and set up remote environment."""
@@ -143,6 +146,16 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         # Create and enter the asyncssh connection context manager
         self._connection_cm = asyncssh.connect(**self.connect_kwargs)
         self.connection = await self._connection_cm.__aenter__()
+        try:
+            await self._set_up()
+        except BaseException as e:
+            # Don't leak the connection (or the temp dir) when setup fails.
+            with contextlib.suppress(Exception):
+                await self.__aexit__(type(e), e, e.__traceback__)
+            raise
+        return self
+
+    async def _set_up(self) -> None:
         # Base setup (tool server, OS detection) runs commands, so it needs the connection.
         await super().__aenter__()
         # Set up remote working directory
@@ -161,13 +174,17 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             stdout = result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
             self._remote_work_dir = stdout.strip()
 
-        await self.run(f"mkdir -p {self._remote_work_dir}")
+        await self.run(f"mkdir -p {self._work_dir_arg}")
         await self._verify_tools()
         if self.dependencies:  # Install dependencies if specified
             await self._install_dependencies()
         # Create filesystem with proper event loop
         self._fs = await self._create_fs()
-        return self
+
+    @property
+    def _work_dir_arg(self) -> str:
+        """The remote working directory, quoted for a shell command line."""
+        return shlex.quote(self._remote_work_dir or ".")
 
     async def __aexit__(
         self,
@@ -176,14 +193,19 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         exc_tb: TracebackType | None,
     ) -> None:
         """Clean up remote environment and close SSH connection."""
-        if self.connection and self._connection_cm:
-            # Clean up temporary working directory if we created it
-            if not self.cwd and self._remote_work_dir:
-                await self.run(f"rm -rf {self._remote_work_dir}")
-
-            await self._connection_cm.__aexit__(exc_type, exc_val, exc_tb)
-        await self._close_fs()
-        await super().__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            if self.connection and self._connection_cm:
+                try:
+                    # Clean up temporary working directory if we created it
+                    if not self.cwd and self._remote_work_dir:
+                        await self.run(f"rm -rf {self._work_dir_arg}")
+                finally:
+                    cm, self._connection_cm = self._connection_cm, None
+                    self.connection = None
+                    await cm.__aexit__(exc_type, exc_val, exc_tb)
+            await self._close_fs()
+        finally:
+            await super().__aexit__(exc_type, exc_val, exc_tb)
 
     async def _close_fs(self) -> None:
         """Close the SFTP channel pool and the filesystem's own SSH connection."""
@@ -287,8 +309,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         # For Python, dependencies are handled via uv run --with
         # For JS/TS, we still need to install them in the working directory
         if self.language in ("javascript", "typescript") and self.dependencies:
-            deps_str = " ".join(self.dependencies)
-            cmd = f"npm init -y && npm install {deps_str}"
+            cmd = f"npm init -y && {shlex.join(['npm', 'install', *self.dependencies])}"
             result = await self.run_in_working_dir(cmd)
             if result.returncode != 0:
                 stderr = (
@@ -350,11 +371,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
             cmd: Command to run
             timeout: Optional timeout in seconds (None means no timeout)
         """
-        if timeout is not None:
-            cmd = f"cd {self._remote_work_dir} && timeout {timeout} {cmd}"
-        else:
-            cmd = f"cd {self._remote_work_dir} && {cmd}"
-        return await self.run(cmd)
+        return await self.run(f"cd {self._work_dir_arg} && {with_timeout(cmd, timeout)}")
 
     async def _execute_python(self, code: str) -> SSHCompletedProcess:
         """Execute Python code using uv run --with for dependencies."""
@@ -362,16 +379,16 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         script_path = f"{self._remote_work_dir}/script.py"
         await self.write_file(script_path, code)
         # Build uv run command with dependencies
-        if self.dependencies:
-            with_args = " ".join(f"--with {dep}" for dep in self.dependencies)
-            cmd = f"uv run {with_args} python {script_path}"
-        else:
-            cmd = f"uv run python {script_path}"
+        with_args = [arg for dep in self.dependencies for arg in ("--with", dep)]
+        cmd = shlex.join(["uv", "run", *with_args, "python", script_path])
         return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
     async def write_file(self, path: str, content: str) -> None:
-        """Write content to a file on the remote server."""
-        await self.run(f"cat > {path} << 'EOF'\n{content}\nEOF")
+        """Write content to a file on the remote server (exactly, via stdin)."""
+        result = await self.run(f"cat > {shlex.quote(path)}", input=content)
+        if result.returncode != 0:
+            msg = f"Failed to write {path}: {result.stderr}"
+            raise RuntimeError(msg)
 
     async def _execute_javascript(self, code: str) -> Any:
         """Execute JavaScript code using node."""
@@ -379,7 +396,7 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         script_path = f"{self._remote_work_dir}/script.js"
         await self.write_file(script_path, code)
         return await self.run_in_working_dir(
-            f"node {script_path}", timeout=self.default_command_timeout
+            shlex.join(["node", script_path]), timeout=self.default_command_timeout
         )
 
     async def _execute_typescript(self, code: str) -> Any:
@@ -390,10 +407,10 @@ class SshExecutionEnvironment(ExecutionEnvironment):
         # Try ts-node first, fall back to tsc + node
         ts_node_result = await self.run("which ts-node")
         if ts_node_result.returncode == 0:
-            cmd = f"ts-node {script_path}"
+            cmd = shlex.join(["ts-node", script_path])
         else:
             # Compile and run
-            cmd = f"npx tsc {script_path} && node script.js"
+            cmd = f"{shlex.join(['npx', 'tsc', script_path])} && node script.js"
 
         return await self.run_in_working_dir(cmd, timeout=self.default_command_timeout)
 
@@ -427,13 +444,20 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
             success = result.returncode == 0
             stderr = err.decode() if isinstance(err := result.stderr, bytes) else err
             stdout = out.decode() if isinstance(out := result.stdout, bytes) else out
-            error = stderr if not success else None
+            timed_out = effective_timeout is not None and result.returncode == 124  # noqa: PLR2004
+            error: str | None = None
+            if timed_out:
+                error = f"Command timed out after {effective_timeout} seconds"
+            elif not success:
+                error = stderr
+            error_type = "TimeoutError" if timed_out else "RemoteCommandError"
             return ExecutionResult(
                 result=result.stdout if success else None,
                 duration=time.time() - start_time,
                 success=success,
                 error=error,
-                error_type="RemoteCommandError" if not success else None,
+                error_type=error_type if not success else None,
+                exit_code=result.returncode,
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -487,41 +511,28 @@ os.environ['TOOL_SERVER_PORT'] = '{self.server_info.port}'
         *,
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
-        """Execute command and stream events over SSH."""
-        connection = self._ensure_connected()
-        effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        process_id = f"ssh_cmd_{id(connection)}"
-        yield ProcessStartedEvent(process_id=process_id, command=command)
-        try:
-            cmd = f"cd {self._remote_work_dir} && timeout {effective_timeout} {command}"
-            async with connection.create_process(wrap_command(cmd)) as process:
-                async for line in process.stdout:
-                    data = line.rstrip("\n\r")
-                    yield OutputEvent(process_id=process_id, data=data, stream="stdout")
-                async for line in process.stderr:
-                    data = line.rstrip("\n\r")
-                    yield OutputEvent(process_id=process_id, data=data, stream="stderr")
-                code = process.returncode or 0
-                # Exit code 124 is timeout's exit code when command times out
-                if code == 124:  # noqa: PLR2004
-                    yield ProcessErrorEvent(
-                        process_id=process_id,
-                        error=f"Command timed out after {effective_timeout} seconds",
-                        error_type="TimeoutError",
-                        exit_code=code,
-                    )
-                elif code == 0:
-                    yield ProcessCompletedEvent(process_id=process_id, exit_code=code)
-                else:
-                    yield ProcessErrorEvent(
-                        process_id=process_id,
-                        error=f"Command exited with code {code}",
-                        error_type="CommandError",
-                        exit_code=code,
-                    )
+        """Execute a command (login shell, working dir) and stream its output line by line.
 
-        except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+        Args:
+            command: Shell command line
+            timeout: Total time limit in seconds (defaults to `default_command_timeout`);
+                on expiry the process is killed.
+
+        Yields:
+            Started, output (one per line, stdout and stderr in order) and
+            completed/error events
+        """
+        from exxec.spawn_stream import stream_command_via_spawn
+
+        connection = self._ensure_connected()
+        async for event in stream_command_via_spawn(
+            self,
+            wrap_command(command),
+            timeout=timeout,
+            process_id=f"ssh_cmd_{id(connection)}",
+            display_command=command,
+        ):
+            yield event
 
 
 if __name__ == "__main__":
