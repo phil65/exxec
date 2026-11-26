@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -12,7 +13,10 @@ import pytest
 from exxec.command_line import with_timeout
 
 
-posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell")
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("timeout") is None,
+    reason="POSIX shell with coreutils timeout (as in the remote sandboxes)",
+)
 
 
 def _run_argv(argv: list[str]) -> subprocess.CompletedProcess[bytes]:

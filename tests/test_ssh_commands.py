@@ -42,7 +42,7 @@ async def env(ssh_server: int, tmp_path: Path) -> AsyncIterator[SshExecutionEnvi
         cwd=str(work_dir),
         env_vars={"VAL": "it's $(echo expanded)"},
         known_hosts=None,
-        default_command_timeout=10,
+        default_command_timeout=None,
     )
     async with ssh_env:
         yield ssh_env
@@ -68,6 +68,7 @@ async def test_cwd_with_spaces(env: SshExecutionEnvironment, tmp_path: Path):
     assert result.stdout == f"{tmp_path / 'work dir'}\n"
 
 
+@pytest.mark.skipif(shutil.which("timeout") is None, reason="coreutils timeout")
 async def test_execute_command_builtins_with_timeout(env: SshExecutionEnvironment):
     result = await env.execute_command("cd / && pwd", timeout=5)
     assert result.success, result.error
