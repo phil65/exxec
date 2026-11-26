@@ -165,6 +165,23 @@ async def test_pipe_kill_terminates_process_group() -> None:
 
 
 @posix_only
+@pytest.mark.parametrize("pty", [None, PtySize(rows=24, cols=80)])
+async def test_kill_signals_group_after_leader_exited(pty: PtySize | None) -> None:
+    async with LocalExecutionEnvironment() as env:
+        # nohup: a terminal hangup (the PTY leader exiting) must not be what ends it
+        handle = await env.spawn("nohup sleep 30 >/dev/null 2>&1 & echo $!; sleep 0.2", pty=pty)
+        async with handle:
+            output = await read_until(handle, b"\n")
+            child_pid = int(output.strip())
+            assert await handle.wait() == 0  # the leader is gone, its child is not
+            os.kill(child_pid, 0)
+            assert await handle.kill(grace=2) == 0
+    await asyncio.sleep(0.2)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
+
+
+@posix_only
 async def test_context_exit_kills_running_process() -> None:
     async with LocalExecutionEnvironment() as env:
         handle = await env.spawn(PY, ["-c", "import time; time.sleep(30)"])

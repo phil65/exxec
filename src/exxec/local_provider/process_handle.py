@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 
 READ_CHUNK_SIZE = 65536
+LEFTOVER_POLL_INTERVAL = 0.02
 EOT = b"\x04"
 
 _CTTY_HELPER = (
@@ -135,6 +136,10 @@ class LocalPipeProcessHandle(ProcessHandle):
             await _kill_tree_windows(self._process)
             return
         _signal_group(self._process.pid, SIGNAL_NUMBERS[sig])
+
+    async def _kill_leftovers(self, *, grace: float, signal: SignalName) -> None:
+        if sys.platform != "win32":  # taskkill /T already ended the whole tree
+            await _kill_group_leftovers(self._process.pid, grace=grace, signal=signal)
 
     async def _wait(self) -> int:
         return normalize_returncode(await self._process.wait())
@@ -290,6 +295,9 @@ class LocalPtyProcessHandle(ProcessHandle):
         # The child is started as a session (and process group) leader.
         _signal_group(self._process.pid, SIGNAL_NUMBERS[sig])
 
+    async def _kill_leftovers(self, *, grace: float, signal: SignalName) -> None:
+        await _kill_group_leftovers(self._process.pid, grace=grace, signal=signal)
+
     async def _wait(self) -> int:
         return normalize_returncode(await self._process.wait())
 
@@ -350,6 +358,36 @@ def _signal_group(pid: int, signum: int) -> None:
     except PermissionError:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.kill(pid, signum)
+
+
+def _group_alive(pgid: int) -> bool:
+    if sys.platform == "win32":
+        return False
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:  # macOS: only unreaped zombies left
+        return False
+    return True
+
+
+async def _kill_group_leftovers(pgid: int, *, grace: float, signal: SignalName) -> None:
+    """Terminate the members of the (exited) leader's group: `signal`, then SIGKILL.
+
+    The group id stays reserved while the group has members, so it cannot name an
+    unrelated process. The members are not our children, so their exit is polled.
+    """
+    if not _group_alive(pgid):
+        return
+    _signal_group(pgid, SIGNAL_NUMBERS[signal])
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + grace
+    while _group_alive(pgid):
+        if loop.time() >= deadline:
+            _signal_group(pgid, SIGNAL_NUMBERS["KILL"])
+            return
+        await asyncio.sleep(LEFTOVER_POLL_INTERVAL)
 
 
 def _set_window_size(fd: int, size: PtySize) -> None:

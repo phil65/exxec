@@ -186,17 +186,31 @@ class ProcessHandle(ABC):
             signal: Signal requesting termination; "HUP" suits terminal sessions,
                 since interactive shells ignore SIGTERM but exit on hangup
 
+        Processes the command left behind in its process group (e.g. `x &` in a shell
+        command line) are terminated the same way, also when the process itself has
+        already exited, on providers that start commands in their own group.
+
         Returns:
             Exit code (shell convention)
         """
-        if self._returncode is not None:
-            return self._returncode
-        await self.send_signal(signal)
-        try:
-            return await asyncio.wait_for(self.wait(), timeout=grace)
-        except TimeoutError:
-            await self.send_signal("KILL")
-            return await self.wait()
+        if self._returncode is not None or await self._has_exited():
+            code = await self.wait()
+        else:
+            await self.send_signal(signal)
+            try:
+                code = await asyncio.wait_for(self.wait(), timeout=grace)
+            except TimeoutError:
+                await self.send_signal("KILL")
+                code = await self.wait()
+        await self._kill_leftovers(grace=grace, signal=signal)
+        return code
+
+    async def _kill_leftovers(self, *, grace: float, signal: SignalName) -> None:
+        """Terminate what is left of the process group once the process has exited.
+
+        Override where the provider starts commands in their own process group.
+        """
+        return
 
     async def aclose(self) -> None:
         """Kill the process if still running and release all resources.
