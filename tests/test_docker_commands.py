@@ -1,6 +1,7 @@
 """Docker command/code paths (quoting, exit codes, timeouts, event loop) on a real container."""
 
 import asyncio
+from pathlib import Path
 import platform
 import shutil
 import subprocess
@@ -58,7 +59,8 @@ async def test_execute_command_runs_in_workspace(docker_env: DockerExecutionEnvi
 async def test_execute_command_timeout(docker_env: DockerExecutionEnvironment):
     result = await docker_env.execute_command("sleep 30", timeout=0.5)
     assert result.error_type == "TimeoutError"
-    list_processes = r"for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; echo; done"
+    # 2>/dev/null: a process may exit between the glob and reading its cmdline.
+    list_processes = r"for p in /proc/[0-9]*; do tr '\0' ' ' < $p/cmdline; echo; done 2>/dev/null"
     check = await docker_env.execute_command(f"{list_processes} | grep -c '^sleep 30' || true")
     assert check.stdout is not None
     assert check.stdout.strip() == "0"
@@ -125,3 +127,18 @@ async def test_stream_code_exit_code(docker_env: DockerExecutionEnvironment):
     assert any(isinstance(e, OutputEvent) and e.data == "hi" for e in events)
     assert isinstance(events[-1], ProcessErrorEvent)
     assert events[-1].exit_code == 4  # noqa: PLR2004
+
+
+async def test_aexit_removes_more_files_than_fit_on_a_command_line():
+    """Teardown deletes the container's (root-owned) files even past ARG_MAX."""
+    async with DockerExecutionEnvironment() as env:
+        workdir = env.host_workdir
+        assert workdir
+        # Directories with a file: the host user can't delete those of root.
+        many = (
+            "seq 12000 | sed 's/^/" + "x" * 200 + "/' | xargs mkdir && find . -mindepth 1"
+            " -maxdepth 1 -type d -exec sh -c 'for d; do : > \"$d/f\"; done' _ {} +"
+        )
+        result = await env.execute_command(many, timeout=60)
+        assert result.success, result.error
+    assert not Path(workdir).exists()

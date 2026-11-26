@@ -84,8 +84,17 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         from testcontainers.core.container import DockerContainer
 
         await super().__aenter__()
+        try:
+            await self._start_container(DockerContainer)
+        except BaseException as e:
+            # __aexit__ doesn't run when __aenter__ fails: no container or workdir left.
+            await asyncio.shield(self.__aexit__(type(e), e, e.__traceback__))
+            raise
+        return self
+
+    async def _start_container(self, container_class: type[DockerContainer]) -> None:
         self.host_workdir = tempfile.mkdtemp()  # Create temp dir on host for shared fs
-        self.container = DockerContainer(self.image).with_volume_mapping(
+        self.container = container_class(self.image).with_volume_mapping(
             self.host_workdir, "/workspace", "rw"
         )
         # Add environment variables if specified
@@ -98,22 +107,21 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         await asyncio.to_thread(self.container.start)
 
         # Install once, before the first command can run (not in the background).
-        install_commands: list[str] = []
+        # Each install on its own: one failing doesn't skip the others.
+        install_commands: list[list[str]] = []
         if self.server_info:
-            install_commands.append("pip install httpx2")
+            install_commands.append(["pip", "install", "httpx2"])
         if self.dependencies:
             match self.language:
                 case "python":
-                    install_commands.append(shlex.join(["pip", "install", *self.dependencies]))
+                    install_commands.append(["pip", "install", *self.dependencies])
                 case "javascript" | "typescript":
-                    install_commands.append(shlex.join(["npm", "install", *self.dependencies]))
-        if install_commands:
-            argv = ["sh", "-c", " && ".join(install_commands)]
+                    install_commands.append(["npm", "install", *self.dependencies])
+        for argv in install_commands:
             result = await asyncio.to_thread(self.container.exec, argv)
             if result.exit_code != 0:
                 output = _decode(result.output)
-                logger.warning("Installing dependencies failed: %s", output)
-        return self
+                logger.warning("%s failed: %s", shlex.join(argv), output)
 
     async def __aexit__(
         self,
@@ -121,26 +129,26 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        if self.container:  # Cleanup container
-            container = self.container
+        try:
+            if container := self.container:  # Cleanup container
 
-            def stop() -> None:
-                # Files the container created in the bind mount belong to its (root)
-                # user: remove them from inside, so the host directory can go too.
-                with contextlib.suppress(Exception):
-                    container.exec([
-                        "sh",
-                        "-c",
-                        "rm -rf /workspace/..?* /workspace/.[!.]* /workspace/*",
-                    ])
-                with contextlib.suppress(Exception):
-                    container.stop()
+                def stop() -> None:
+                    # Files the container created in the bind mount belong to its (root)
+                    # user: remove them from inside, so the host directory can go too.
+                    # find, not a glob, which can exceed the argument limit.
+                    with contextlib.suppress(Exception):
+                        container.exec(["find", "/workspace", "-mindepth", "1", "-delete"])
+                    with contextlib.suppress(Exception):
+                        container.stop()
 
-            await asyncio.to_thread(stop)
-        if self.host_workdir:  # Cleanup host working directory
-            with contextlib.suppress(Exception):
-                shutil.rmtree(self.host_workdir)
-        await super().__aexit__(exc_type, exc_val, exc_tb)
+                await asyncio.shield(asyncio.to_thread(stop))
+        finally:
+            try:
+                if self.host_workdir:  # Cleanup host working directory
+                    with contextlib.suppress(Exception):
+                        shutil.rmtree(self.host_workdir)
+            finally:
+                await super().__aexit__(exc_type, exc_val, exc_tb)
 
     def get_fs(self) -> DirFileSystem:
         """Return a DirFileSystem instance for the shared host directory."""
@@ -226,7 +234,7 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         )
         ext = {"python": "py", "javascript": "js", "typescript": "ts"}.get(self.language, "py")
         name = f"script-{uuid.uuid4().hex}.{ext}"
-        Path(self.host_workdir, name).write_text(wrap_code(code, lang))
+        Path(self.host_workdir, name).write_text(wrap_code(code, lang), encoding="utf-8")
         return name
 
     def _remove_script(self, name: str) -> None:
@@ -243,7 +251,10 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         if not self.host_workdir:
             error_msg = "Host working directory not initialized"
             raise RuntimeError(error_msg)
-        script = self._write_script(code)
+        try:
+            script = self._write_script(code)
+        except Exception as e:  # noqa: BLE001
+            return ExecutionResult.failed(e, start_time)
         try:
             program, *args = get_execution_argv(self.language, script)
             output, exit_code = await self._run(program, args, self.default_command_timeout)
@@ -327,7 +338,12 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             msg = "Docker container not initialized"
             yield ProcessErrorEvent(process_id=process_id, error=msg, error_type="RuntimeError")
             return
-        script = self._write_script(code)
+        try:
+            script = self._write_script(code)
+        except Exception as e:  # noqa: BLE001
+            yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
+            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            return
         try:
             async for event in stream_command_via_spawn(
                 self,
