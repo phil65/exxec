@@ -77,7 +77,7 @@ uv run mknodes build          # docs
 
 ## Conventions
 
-- Python >= 3.13, fully async API. `from __future__ import annotations` everywhere;
+- Python >= 3.14, fully async API. No `from __future__ import annotations` (PEP 649; banned via ruff TID251);
   type-only imports under `TYPE_CHECKING`.
 - Ruff with a broad rule set (`pyproject.toml`), line length 100, preview formatting.
   ty is the type checker (`[tool.ty.*]`); use targeted `# ty: ignore[rule]` only.
