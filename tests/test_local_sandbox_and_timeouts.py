@@ -1,7 +1,9 @@
 """Local / SRT environments: sandbox wrapping of code, timeouts that kill, decoding."""
 
 import asyncio
+import contextlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -180,3 +182,68 @@ async def test_finished_groups_are_forgotten():
         for _ in range(3):
             assert (await env.execute_command("true")).success
         assert len(env._process_groups) <= 1
+
+
+@posix_only
+async def test_timeout_ends_background_children_when_the_leader_exited():
+    """`cmd &` keeps the pipe open after the shell exits: the timeout ends the group."""
+    marker = f"47.{uuid.uuid4().int % 10**6}"
+    async with LocalExecutionEnvironment() as env:
+        result = await env.execute_command(f"sleep {marker} &", timeout=0.5)
+        assert result.error_type == "TimeoutError"
+        await asyncio.sleep(0.2)
+        assert not _alive(f"sleep {marker}")
+
+
+@posix_only
+async def test_timeout_gives_group_members_the_grace_period(tmp_path):
+    """The shell exiting on TERM doesn't cut its children's cleanup short."""
+    marker = tmp_path / "cleaned"
+    script = (
+        "import signal, sys, time\n"
+        "def on_term(*_):\n"
+        "    time.sleep(0.3)\n"
+        f"    open({str(marker)!r}, 'w').close()\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, on_term)\n"
+        "time.sleep(30)\n"
+    )
+    env = LocalExecutionEnvironment()
+    cmd = f"{shlex.join([sys.executable, '-c', script])} & wait"
+    result = await env.execute_command(cmd, timeout=0.5)
+    assert result.error_type == "TimeoutError"
+    assert marker.exists()
+
+
+@posix_only
+async def test_cancelling_the_cleanup_still_kills_the_group():
+    """A second cancellation during the TERM grace period doesn't skip the KILL."""
+    marker = f"48.{uuid.uuid4().int % 10**6}"
+    async with LocalExecutionEnvironment() as env:
+        task = asyncio.create_task(
+            env.execute_command(f"trap '' TERM; sleep {marker}", timeout=None)
+        )
+        await asyncio.sleep(0.3)
+        task.cancel()
+        await asyncio.sleep(0.1)  # now in the grace period after TERM
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(1.5)  # grace (1 s), then KILL
+        assert not _alive(f"sleep {marker}")
+
+
+@posix_only
+async def test_stream_code_timeout_is_a_total_deadline():
+    """Steady output doesn't extend the timeout."""
+    code = "import time\nfor _ in range(20):\n    print('.', flush=True)\n    time.sleep(0.1)\n"
+    env = LocalExecutionEnvironment(isolated=True, default_command_timeout=0.5)
+    events = [event async for event in env.stream_code(code)]
+    assert getattr(events[-1], "error_type", None) == "TimeoutError"
+
+
+async def test_isolated_code_runs_in_the_environments_cwd(tmp_path):
+    async with LocalExecutionEnvironment(isolated=True, cwd=str(tmp_path)) as env:
+        result = await env.execute("import os\n_result = os.getcwd()")
+    assert result.success, result.error
+    assert tmp_path.samefile(result.result)

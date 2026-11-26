@@ -51,28 +51,42 @@ def _decode(data: bytes | None) -> str:
     return data.decode(errors="replace") if data else ""
 
 
-async def _kill_process_group(process: asyncio.subprocess.Process, grace: float = 1.0) -> None:
+# Cleanups run as tasks (shielded from the caller's cancellation); strong refs here.
+_cleanups: set[asyncio.Task[None]] = set()
+
+
+async def _kill_process_group(
+    process: asyncio.subprocess.Process, grace: float = 1.0, *, leftovers: bool = True
+) -> None:
     """Terminate a process started with `NEW_SESSION` and everything in its group.
 
-    Sends TERM to the group, then KILL after `grace` seconds, and reaps the process.
+    Sends TERM to the group, then KILL after `grace` seconds (members that outlive the
+    leader get the whole grace period), and reaps the process. With `leftovers=False`
+    a process that already exited is left alone, and so are its background children
+    (a finished command's; they end with the environment). The cleanup finishes even
+    if the caller is cancelled meanwhile.
     """
+    if process.returncode is not None and not leftovers:
+        return
+    task = asyncio.ensure_future(_end_process_group(process, grace))
+    _cleanups.add(task)
+    task.add_done_callback(_cleanups.discard)
+    await asyncio.shield(task)
+
+
+async def _end_process_group(process: asyncio.subprocess.Process, grace: float) -> None:
     from exxec.local_provider.process_handle import _kill_tree_windows
 
-    if process.returncode is not None:
-        return
     if sys.platform == "win32":
-        await _kill_tree_windows(process)
+        if process.returncode is None:
+            await _kill_tree_windows(process)
     else:
-        import signal
-
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(process.pid, signal.SIGTERM)
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(process.wait()), timeout=grace)
-        with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(process.pid, signal.SIGKILL)
-    with contextlib.suppress(ProcessLookupError):
-        process.kill()
+        # Polls the group, leader included; KILLs only a group that still has members
+        # (an empty group's id may already name an unrelated one).
+        await _kill_process_groups({process.pid}, grace)
+    if process.returncode is None:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
     await process.wait()
 
 
@@ -203,8 +217,9 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         exc_tb: TracebackType | None,
     ) -> None:
         try:
-            for process in list(self._processes):
-                await _kill_process_group(process, grace=5.0)
+            # All at once: the grace periods run in parallel, not one after another.
+            processes, self._processes = list(self._processes), set()
+            await asyncio.gather(*(_kill_process_group(p, grace=5.0) for p in processes))
             # Including the groups of commands that already finished: their background
             # children would otherwise outlive the environment.
             await _kill_process_groups(self._process_groups, grace=5.0)
@@ -286,6 +301,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             stdin="pipe",
             stdout="pipe",
             stderr=stderr,
+            cwd=self.cwd,
             env=self.get_env(),
             start_new_session=NEW_SESSION,
         )
@@ -294,10 +310,15 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self._processes.add(process)
         return process
 
-    async def _finish_process(self, process: asyncio.subprocess.Process) -> None:
-        """Kill what's left of a process (timeout, cancellation) and forget it."""
+    async def _finish_process(
+        self, process: asyncio.subprocess.Process, *, finished: bool = False
+    ) -> None:
+        """Kill what's left of a process (timeout, cancellation) and forget it.
+
+        A `finished` process's background children stay (until the environment ends).
+        """
         try:
-            await _kill_process_group(process)
+            await _kill_process_group(process, leftovers=not finished)
         finally:
             self._processes.discard(process)
 
@@ -305,6 +326,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         """Execute code in subprocess with communication via stdin/stdout."""
         start_time = time.time()
         process: asyncio.subprocess.Process | None = None
+        finished = False
         try:
             wrapped_code = wrap_code(code, self.language)
             process = await self._start_code_process(stderr="pipe")
@@ -313,6 +335,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                     process.communicate(wrapped_code.encode()),
                     timeout=self.default_command_timeout,
                 )
+                finished = True
             except TimeoutError:
                 msg = f"Execution timed out after {self.default_command_timeout} seconds"
                 return ExecutionResult.failed(TimeoutError(msg), start_time)
@@ -354,7 +377,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             return ExecutionResult.failed(e, start_time)
         finally:
             if process is not None:
-                await self._finish_process(process)
+                await self._finish_process(process, finished=finished)
 
     def _get_subprocess_args(self) -> list[str]:
         """Get subprocess arguments based on language."""
@@ -487,10 +510,12 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
         self._track_group(process.pid)
+        finished = False
         try:
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=effective_timeout
             )
+            finished = True
         except TimeoutError:
             msg = f"Command timed out after {effective_timeout} seconds"
             return ExecutionResult.failed(TimeoutError(msg), start_time)
@@ -498,7 +523,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             return ExecutionResult.failed(e, start_time)
         finally:
             # On timeout or cancellation: the shell and everything it started.
-            await _kill_process_group(process)
+            await _kill_process_group(process, leftovers=not finished)
 
         stdout = _decode(stdout_data)
         stderr = _decode(stderr_data)
@@ -540,33 +565,40 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
             return
+        finished = False
+        timeout = self.default_command_timeout
         try:
             if process.stdin:
                 wrapped_code = wrap_code(code, self.language)
                 process.stdin.write(wrapped_code.encode())
                 process.stdin.close()
 
-            if process.stdout:
-                while True:
-                    try:
-                        line = await asyncio.wait_for(
-                            process.stdout.readline(), timeout=self.default_command_timeout
-                        )
-                    except TimeoutError:
-                        await _kill_process_group(process)
-                        yield ProcessErrorEvent(
-                            process_id=process_id,
-                            error=f"Process timed out after {self.default_command_timeout} seconds",
-                            error_type="TimeoutError",
-                            exit_code=1,
-                        )
-                        return
+            # One deadline for the whole run: steady output doesn't extend it. (No
+            # timeout scope: it would span the yields and cancel the consumer.)
+            loop = asyncio.get_running_loop()
+            deadline = None if timeout is None else loop.time() + timeout
+
+            def left() -> float | None:
+                return None if deadline is None else max(0.0, deadline - loop.time())
+
+            try:
+                while process.stdout:
+                    line = await asyncio.wait_for(process.stdout.readline(), left())
                     if not line:
                         break
                     data = _decode(line).rstrip("\n\r")
                     yield OutputEvent(process_id=process_id, data=data, stream="combined")
-
-            exit_code = await process.wait()
+                exit_code = await asyncio.wait_for(process.wait(), left())
+            except TimeoutError:
+                await _kill_process_group(process)
+                yield ProcessErrorEvent(
+                    process_id=process_id,
+                    error=f"Process timed out after {timeout} seconds",
+                    error_type="TimeoutError",
+                    exit_code=1,
+                )
+                return
+            finished = True
             if exit_code == 0:
                 yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
             else:
@@ -580,7 +612,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
         finally:
-            await self._finish_process(process)
+            await self._finish_process(process, finished=finished)
 
     async def _stream_code_local(self, code: str, process_id: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code locally and stream events."""
