@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
+import shlex
 import shutil
 import tempfile
 import time
 from typing import TYPE_CHECKING, Literal, Self
+import uuid
 
 from exxec.base import ExecutionEnvironment
-from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
+from exxec.events import ProcessErrorEvent, ProcessStartedEvent
+from exxec.log import get_logger
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_code
 
@@ -27,6 +31,10 @@ if TYPE_CHECKING:
     from exxec.models import Language, ServerInfo
     from exxec.process_handle import ProcessHandle
     from exxec.pty_manager import PtySize
+
+
+logger = get_logger(__name__)
+_WORKSPACE_ENTRIES = "/workspace/..?* /workspace/.[!.]* /workspace/*"
 
 
 class DockerExecutionEnvironment(ExecutionEnvironment):
@@ -86,29 +94,27 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         env = self.get_env() or {}
         for key, value in env.items():
             self.container = self.container.with_env(key, value)
+        if self.server_info:
+            self.container = self.container.with_kwargs(network_mode="host")
+        self.container = self.container.with_command(["sh", "-c", "sleep infinity"])
+        await asyncio.to_thread(self.container.start)
 
-        install_commands: list[str] = []  # Build install commands
+        # Install once, before the first command can run (not in the background).
+        install_commands: list[str] = []
         if self.server_info:
             install_commands.append("pip install httpx2")
         if self.dependencies:
-            deps_str = " ".join(self.dependencies)
             match self.language:
                 case "python":
-                    install_commands.append(f"pip install {deps_str}")
+                    install_commands.append(shlex.join(["pip", "install", *self.dependencies]))
                 case "javascript" | "typescript":
-                    install_commands.append(f"npm install {deps_str}")
-
+                    install_commands.append(shlex.join(["npm", "install", *self.dependencies]))
         if install_commands:
-            full_command = " && ".join(install_commands) + " && sleep infinity"
-            cmd = ["sh", "-c", full_command]
-            self.container = self.container.with_command(cmd)
-            if self.server_info:
-                self.container = self.container.with_kwargs(network_mode="host")
-        else:
-            cmd = ["sh", "-c", "sleep infinity"]  # Just start the container for execution
-            self.container = self.container.with_command(cmd)
-
-        self.container.start()
+            argv = ["sh", "-c", " && ".join(install_commands)]
+            result = await asyncio.to_thread(self.container.exec, argv)
+            if result.exit_code != 0:
+                output = _decode(result.output)
+                logger.warning("Installing dependencies failed: %s", output)
         return self
 
     async def __aexit__(
@@ -118,8 +124,21 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         exc_tb: TracebackType | None,
     ) -> None:
         if self.container:  # Cleanup container
-            with contextlib.suppress(Exception):
-                self.container.stop()
+            container = self.container
+
+            def stop() -> None:
+                # Files the container created in the bind mount belong to its (root)
+                # user: remove them from inside, so the host directory can go too.
+                with contextlib.suppress(Exception):
+                    container.exec([
+                        "sh",
+                        "-c",
+                        "rm -rf /workspace/..?* /workspace/.[!.]* /workspace/*",
+                    ])
+                with contextlib.suppress(Exception):
+                    container.stop()
+
+            await asyncio.to_thread(stop)
         if self.host_workdir:  # Cleanup host working directory
             with contextlib.suppress(Exception):
                 shutil.rmtree(self.host_workdir)
@@ -179,6 +198,44 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             size=pty,
         )
 
+    async def _run(
+        self, command: str, args: list[str] | None, timeout: float | None
+    ) -> tuple[str, int]:
+        """Run a process via `spawn()` and collect its (combined) output.
+
+        Raises:
+            TimeoutError: After killing the process, if it ran longer than `timeout`
+        """
+        handle = await self.spawn(command, args)
+        async with handle:
+            chunks: list[bytes] = []
+            try:
+                async with asyncio.timeout(timeout):
+                    chunks.extend([chunk async for chunk in handle.output()])
+                    exit_code = await handle.wait()
+            except TimeoutError:
+                await handle.kill(grace=1.0)
+                raise
+        return _decode(b"".join(chunks)), exit_code
+
+    def _write_script(self, code: str) -> str:
+        """Write wrapped code to a script of its own in the shared workdir; return its name."""
+        if not self.host_workdir:
+            error_msg = "Host working directory not initialized"
+            raise RuntimeError(error_msg)
+        lang: Literal["python", "javascript", "typescript"] = (
+            "javascript" if self.language == "typescript" else self.language
+        )
+        ext = {"python": "py", "javascript": "js", "typescript": "ts"}.get(self.language, "py")
+        name = f"script-{uuid.uuid4().hex}.{ext}"
+        Path(self.host_workdir, name).write_text(wrap_code(code, lang))
+        return name
+
+    def _remove_script(self, name: str) -> None:
+        if self.host_workdir:
+            with contextlib.suppress(OSError):
+                Path(self.host_workdir, name).unlink()
+
     async def execute(self, code: str) -> ExecutionResult:
         """Execute code in Docker container."""
         start_time = time.time()
@@ -188,46 +245,40 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         if not self.host_workdir:
             error_msg = "Host working directory not initialized"
             raise RuntimeError(error_msg)
-        # Write code directly to shared filesystem
-        wrapped_code = wrap_code(code, self.language)
-        # Use simple script names that match get_execution_command expectations
-        script_extensions = {"python": ".py", "javascript": ".js", "typescript": ".ts"}
-        ext = script_extensions.get(self.language, ".py")
-        host_script_path = f"{self.host_workdir}/script{ext}"
+        script = self._write_script(code)
         try:
-            with open(host_script_path, "w") as f:  # noqa: PTH123
-                f.write(wrapped_code)
-            command = get_execution_command(self.language)
-            result = self.container.exec(command)  # Execute the script
-            duration = time.time() - start_time
-            output = result.output.decode() if result.output else ""
-            execution_result, error_info = parse_output(output)
-            if result.exit_code == 0 and error_info is None:
-                return ExecutionResult(
-                    result=execution_result,
-                    duration=duration,
-                    success=True,
-                    exit_code=result.exit_code,
-                    stdout=result.output.decode() if result.output else "",
-                    stderr="",
-                )
-            return ExecutionResult(
-                result=None,
-                duration=duration,
-                success=False,
-                error=error_info.get("error", "Container execution failed")
-                if error_info
-                else "Container execution failed",
-                error_type=error_info.get("type", "ContainerError")
-                if error_info
-                else "ContainerError",
-                exit_code=result.exit_code,
-                stdout=result.output.decode() if result.output else "",
-                stderr="",
-            )
-
+            program, *args = get_execution_argv(self.language, script)
+            output, exit_code = await self._run(program, args, self.default_command_timeout)
+        except TimeoutError:
+            msg = f"Execution timed out after {self.default_command_timeout} seconds"
+            return ExecutionResult.failed(TimeoutError(msg), start_time)
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
+        finally:
+            self._remove_script(script)
+        duration = time.time() - start_time
+        execution_result, error_info = parse_output(output)
+        if exit_code == 0 and error_info is None:
+            return ExecutionResult(
+                result=execution_result,
+                duration=duration,
+                success=True,
+                exit_code=exit_code,
+                stdout=output,
+                stderr="",
+            )
+        return ExecutionResult(
+            result=None,
+            duration=duration,
+            success=False,
+            error=error_info.get("error", "Container execution failed")
+            if error_info
+            else "Container execution failed",
+            error_type=error_info.get("type", "ContainerError") if error_info else "ContainerError",
+            exit_code=exit_code,
+            stdout=output,
+            stderr="",
+        )
 
     async def execute_command(
         self,
@@ -235,64 +286,14 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         *,
         timeout: float | None = None,
     ) -> ExecutionResult:
-        """Execute a terminal command in Docker container and return result."""
+        """Execute a shell command in the container's /workspace and return the result."""
         start_time = time.time()
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
-
         try:
             if not self.container:
                 error_msg = "Docker environment not properly initialized"
                 raise RuntimeError(error_msg)  # noqa: TRY301
-
-            if self.dependencies:  # Install deps first if needed (output -> /dev/null)
-                deps_str = " ".join(self.dependencies)
-                if self.language == "python":
-                    install_cmd = f"pip install {deps_str} > /dev/null 2>&1"
-                elif self.language in ("javascript", "typescript"):
-                    install_cmd = f"npm install {deps_str} > /dev/null 2>&1"
-                else:
-                    install_cmd = None
-
-                if install_cmd:
-                    install_result = await asyncio.to_thread(
-                        self.container.exec, ["sh", "-c", install_cmd]
-                    )
-                    if install_result.exit_code != 0:
-                        error_msg = f"Failed to install dependencies: {self.dependencies}"
-                        return ExecutionResult(
-                            result=None,
-                            duration=time.time() - start_time,
-                            success=False,
-                            error=error_msg,
-                            error_type="DependencyError",
-                            exit_code=install_result.exit_code,
-                            stdout="",
-                            stderr=install_result.output.decode() if install_result.output else "",
-                        )
-
-            # Execute the command cleanly (no dependency installation output)
-            # Run in /workspace directory to match execute_command_stream behavior
-            full_command = f"sh -c 'cd /workspace && {command}'"
-            result = await asyncio.wait_for(
-                asyncio.to_thread(self.container.exec, full_command),
-                timeout=effective_timeout,
-            )
-            duration = time.time() - start_time
-
-            stdout = result.output.decode() if result.output else ""
-            success = result.exit_code == 0
-
-            return ExecutionResult(
-                result=stdout if success else None,
-                duration=duration,
-                success=success,
-                error=stdout if not success else None,  # Docker exec puts errors in stdout
-                error_type="CommandError" if not success else None,
-                exit_code=result.exit_code,
-                stdout=stdout,
-                stderr="",
-            )
-
+            stdout, exit_code = await self._run(command, None, effective_timeout)
         except TimeoutError:
             return ExecutionResult(
                 result=None,
@@ -306,55 +307,40 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
             )
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
+        success = exit_code == 0
+        return ExecutionResult(
+            result=stdout if success else None,
+            duration=time.time() - start_time,
+            success=success,
+            error=stdout if not success else None,  # stderr is merged into stdout
+            error_type="CommandError" if not success else None,
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr="",
+        )
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events in the Docker container."""
+        from exxec.spawn_stream import stream_command_via_spawn
+
         process_id = f"docker_{id(self.container)}"
-        yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
-
+        if not self.container or not self.host_workdir:
+            yield ProcessStartedEvent(process_id=process_id, command=f"execute({len(code)} chars)")
+            msg = "Docker container not initialized"
+            yield ProcessErrorEvent(process_id=process_id, error=msg, error_type="RuntimeError")
+            return
+        script = self._write_script(code)
         try:
-            if not self.container:
-                msg = "Docker container not initialized"
-                yield ProcessErrorEvent(process_id=process_id, error=msg, error_type="RuntimeError")
-                return
-            if not self.host_workdir:
-                msg = "Host working directory not initialized"
-                yield ProcessErrorEvent(process_id=process_id, error=msg, error_type="RuntimeError")
-                return
-            lang: Literal["python", "javascript", "typescript"] = (
-                "javascript" if self.language == "typescript" else self.language
-            )
-            wrapped_code = wrap_code(code, lang)
-            extension = {"python": "py", "javascript": "js", "typescript": "ts"}[self.language]
-            ext = extension
-            host_script_path = f"{self.host_workdir}/script.{ext}"
-            with open(host_script_path, "w") as f:  # noqa: PTH123
-                f.write(wrapped_code)
-
-            exec_command = get_execution_command(self.language)
-            docker_container = self.container.get_wrapped_container()
-            result = docker_container.exec_run(exec_command, stream=True)
-
-            for chunk in result.output:
-                if isinstance(chunk, bytes):
-                    chunk = chunk.decode()
-                for line in chunk.split("\n"):
-                    if line.strip():
-                        yield OutputEvent(process_id=process_id, data=line, stream="combined")
-
-            exit_code = result.exit_code or 0
-            if exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
-            else:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Process exited with code {exit_code}",
-                    error_type="ProcessError",
-                    exit_code=exit_code,
-                )
-
-        except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            async for event in stream_command_via_spawn(
+                self,
+                shlex.join(get_execution_argv(self.language, script)),
+                timeout=None,
+                process_id=process_id,
+                display_command=f"execute({len(code)} chars)",
+            ):
+                yield event
+        finally:
+            self._remove_script(script)
 
     async def stream_command(
         self,
@@ -362,65 +348,46 @@ class DockerExecutionEnvironment(ExecutionEnvironment):
         *,
         timeout: float | None = None,
     ) -> AsyncIterator[ExecutionEvent]:
-        """Execute a shell command and stream events in the Docker container."""
+        """Execute a shell command in /workspace and stream its output line by line.
+
+        Args:
+            command: Shell command line
+            timeout: Total time limit in seconds (defaults to `default_command_timeout`);
+                on expiry the process group is killed.
+
+        Yields:
+            Started, output (one per line) and completed/error events
+        """
+        from exxec.spawn_stream import stream_command_via_spawn
+
         process_id = f"docker_cmd_{id(self.container)}"
-        effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        yield ProcessStartedEvent(process_id=process_id, command=command)
-
-        try:
-            if not self.container:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error="Docker container not initialized",
-                    error_type="RuntimeError",
-                )
-                return
-
-            full_command = f"sh -c 'cd /workspace && timeout {effective_timeout} {command}'"
-            docker_container = self.container.get_wrapped_container()
-            result = docker_container.exec_run(full_command, stream=True)
-
-            for chunk in result.output:
-                if isinstance(chunk, bytes):
-                    chunk = chunk.decode()
-                for line in chunk.split("\n"):
-                    if line.strip():
-                        yield OutputEvent(process_id=process_id, data=line, stream="combined")
-
-            exit_code = result.exit_code or 0
-            # Exit code 124 is timeout's exit code when command times out
-            if exit_code == 124:  # noqa: PLR2004
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Command timed out after {effective_timeout} seconds",
-                    error_type="TimeoutError",
-                    exit_code=exit_code,
-                )
-            elif exit_code == 0:
-                yield ProcessCompletedEvent(process_id=process_id, exit_code=exit_code)
-            else:
-                yield ProcessErrorEvent(
-                    process_id=process_id,
-                    error=f"Command exited with code {exit_code}",
-                    error_type="CommandError",
-                    exit_code=exit_code,
-                )
-
-        except Exception as e:  # noqa: BLE001
-            yield ProcessErrorEvent.failed(e, process_id=process_id)
+        if not self.container:
+            yield ProcessStartedEvent(process_id=process_id, command=command)
+            yield ProcessErrorEvent(
+                process_id=process_id,
+                error="Docker container not initialized",
+                error_type="RuntimeError",
+            )
+            return
+        async for event in stream_command_via_spawn(
+            self, command, timeout=timeout, process_id=process_id
+        ):
+            yield event
 
 
-def get_execution_command(language: Language) -> str:
-    """Get the appropriate execution command based on language."""
+def _decode(data: bytes | None) -> str:
+    return data.decode(errors="replace") if data else ""
+
+
+def get_execution_argv(language: Language, script: str) -> list[str]:
+    """Get the program and arguments that run a script (in /workspace) of the language."""
     match language:
-        case "python":
-            return "sh -c 'cd /workspace && python script.py'"
         case "javascript":
-            return "sh -c 'cd /workspace && node script.js'"
+            return ["node", script]
         case "typescript":
-            return "sh -c 'cd /workspace && npx ts-node script.ts'"
+            return ["npx", "ts-node", script]
         case _:
-            return "sh -c 'cd /workspace && python script.py'"
+            return ["python", script]
 
 
 if __name__ == "__main__":
