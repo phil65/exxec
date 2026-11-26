@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING, Self
 import uuid
 
 from exxec.base import ExecutionEnvironment
+from exxec.command_line import with_timeout
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
-from exxec.parse_output import get_script_path, parse_command, parse_output, wrap_code
+from exxec.parse_output import get_script_path, parse_output, wrap_code
 
 
 # Vercel API minimum timeout requirement
@@ -248,12 +249,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         """Execute a terminal command in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        # Wrap command with shell timeout for enforcement if timeout is set
-        if effective_timeout is not None:
-            wrapped_command = f"timeout {effective_timeout} {command}"
-        else:
-            wrapped_command = command
-        cmd, args = parse_command(wrapped_command)
+        # A shell command line, time-limited as a whole if a timeout is set
+        cmd, args = "sh", ["-c", with_timeout(command, effective_timeout)]
         start_time = time.time()
         try:
             result = await sandbox.run_command(
@@ -366,12 +363,8 @@ class VercelExecutionEnvironment(ExecutionEnvironment):
         """Execute a terminal command and stream events in the Vercel sandbox."""
         sandbox = self._ensure_initialized()
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        # Wrap command with shell timeout for enforcement if timeout is set
-        if effective_timeout is not None:
-            wrapped_command = f"timeout {effective_timeout} {command}"
-        else:
-            wrapped_command = command
-        cmd, args = parse_command(wrapped_command)
+        # A shell command line, time-limited as a whole if a timeout is set
+        cmd, args = "sh", ["-c", with_timeout(command, effective_timeout)]
         process_id = f"vercel_cmd_{id(sandbox)}"
         yield ProcessStartedEvent(process_id=process_id, command=command)
         try:

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Self
 import uuid
 
 from exxec.base import ExecutionEnvironment
+from exxec.command_line import build_remote_command_line, with_timeout
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.exceptions import NotInitializedError
 from exxec.models import ExecutionResult
@@ -26,14 +27,6 @@ if TYPE_CHECKING:
     from exxec.models import Language, ServerInfo
     from exxec.process_handle import ProcessHandle
     from exxec.pty_manager import PtySize
-
-
-def _get_env_prefix(env_vars: dict[str, str]) -> str:
-    """Get environment variable prefix for commands."""
-    if not env_vars:
-        return ""
-    exports = " ".join(f"{k}={v!r}" for k, v in env_vars.items())
-    return f"env {exports} "
 
 
 def _inject_env_vars_to_code(env_vars: dict[str, str], code: str) -> str:
@@ -245,12 +238,10 @@ class MicrosandboxExecutionEnvironment(ExecutionEnvironment):
         """Execute a terminal command in the Microsandbox environment."""
         sandbox = self._ensure_initialized()
         effective_timeout = timeout if timeout is not None else self.default_command_timeout
-        # Prepend environment variables and wrap with timeout if set
-        env_prefix = _get_env_prefix(self.get_env() or {})
-        if effective_timeout is not None:
-            full_command = f"{env_prefix}timeout {effective_timeout} {command}"
-        else:
-            full_command = env_prefix + command
+        # Export environment variables, limit the whole line if a timeout is set
+        full_command = build_remote_command_line(
+            with_timeout(command, effective_timeout), None, self.get_env() or None
+        )
         start_time = time.time()
         try:
             execution = await sandbox.shell(full_command)
