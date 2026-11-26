@@ -78,6 +78,28 @@ async def _kill_process_group(process: asyncio.subprocess.Process, grace: float 
     await process.wait()
 
 
+async def _kill_process_groups(pgids: set[int], grace: float) -> None:
+    """Terminate whole process groups whose leaders may have exited: TERM, then KILL.
+
+    The members aren't necessarily our children, so their exit is polled.
+    """
+    import signal
+
+    from exxec.local_provider.process_handle import _group_alive, _signal_group
+
+    alive = {pgid for pgid in pgids if _group_alive(pgid)}
+    for pgid in alive:
+        _signal_group(pgid, signal.SIGTERM)
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + grace
+    while alive := {pgid for pgid in alive if _group_alive(pgid)}:
+        if loop.time() >= deadline:
+            for pgid in alive:
+                _signal_group(pgid, signal.SIGKILL)
+            return
+        await asyncio.sleep(0.05)
+
+
 def _platform_os_type() -> OSType:
     """Map `platform.system()` to the supported OS types (other Unixes count as Linux)."""
     match platform.system():
@@ -90,7 +112,12 @@ def _platform_os_type() -> OSType:
 
 
 class LocalExecutionEnvironment(ExecutionEnvironment):
-    """Executes code in the same process or isolated subprocess."""
+    """Executes code in the same process or isolated subprocess.
+
+    On POSIX every process it starts leads its own session; leaving the environment ends
+    all those process groups, also those of commands that already finished (their
+    background children). Nothing started here outlives the environment.
+    """
 
     supports_spawn = True
     supports_pty = sys.platform != "win32"
@@ -137,6 +164,9 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.process: asyncio.subprocess.Process | None = None
         """The last started isolated process (kept for compatibility)."""
         self._processes: set[asyncio.subprocess.Process] = set()
+        self._process_groups: set[int] = set()
+        """Process groups started here (each process starts its own session): all of
+        them, with whatever they left running, end when the environment closes."""
         self.root_path = root_path
         # Local provider knows OS statically
         self._os_type = _platform_os_type()
@@ -154,6 +184,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                 process = await create_process(
                     *argv, stdout="pipe", stderr="pipe", start_new_session=NEW_SESSION
                 )
+                self._track_group(process.pid)
                 try:
                     _, stderr = await asyncio.wait_for(
                         process.communicate(), timeout=self.default_command_timeout
@@ -173,11 +204,29 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        for process in list(self._processes):
-            await _kill_process_group(process, grace=5.0)
+        try:
+            for process in list(self._processes):
+                await _kill_process_group(process, grace=5.0)
+            # Including the groups of commands that already finished: their background
+            # children would otherwise outlive the environment.
+            await _kill_process_groups(self._process_groups, grace=5.0)
+            self._process_groups.clear()
+        finally:
+            # Cleanup server via base class
+            await super().__aexit__(exc_type, exc_val, exc_tb)
 
-        # Cleanup server via base class
-        await super().__aexit__(exc_type, exc_val, exc_tb)
+    def _track_group(self, pid: int) -> None:
+        """Remember the process group a new session leader `pid` heads.
+
+        Groups left empty are dropped first: their id is free again and could be
+        reused by an unrelated group.
+        """
+        if not NEW_SESSION:
+            return
+        from exxec.local_provider.process_handle import _group_alive
+
+        self._process_groups = {g for g in self._process_groups if _group_alive(g)}
+        self._process_groups.add(pid)
 
     def get_fs(self) -> AsyncFileSystem:
         """Return an AsyncLocalFileSystem for the current working directory."""
@@ -242,6 +291,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             env=self.get_env(),
             start_new_session=NEW_SESSION,
         )
+        self._track_group(process.pid)
         self.process = process
         self._processes.add(process)
         return process
@@ -397,17 +447,24 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                 argv = self.wrap_argv([command, *args])
             else:
                 argv = ["/bin/sh", "-c", self.wrap_command(command)]
-            return await LocalPtyProcessHandle.start(argv, cwd=work_dir, env=pty_env, size=pty)
-        pipe_env = (
-            {**(base_env if base_env is not None else os.environ), **env} if env else base_env
-        )
-        if args:
-            return await LocalPipeProcessHandle.start(
-                self.wrap_argv([command, *args]), None, cwd=work_dir, env=pipe_env
+            handle: ProcessHandle = await LocalPtyProcessHandle.start(
+                argv, cwd=work_dir, env=pty_env, size=pty
             )
-        return await LocalPipeProcessHandle.start(
-            None, self.wrap_command(command), cwd=work_dir, env=pipe_env
-        )
+        else:
+            pipe_env = (
+                {**(base_env if base_env is not None else os.environ), **env} if env else base_env
+            )
+            if args:
+                handle = await LocalPipeProcessHandle.start(
+                    self.wrap_argv([command, *args]), None, cwd=work_dir, env=pipe_env
+                )
+            else:
+                handle = await LocalPipeProcessHandle.start(
+                    None, self.wrap_command(command), cwd=work_dir, env=pipe_env
+                )
+        if handle.pid is not None:
+            self._track_group(handle.pid)
+        return handle
 
     async def execute_command(
         self,
@@ -431,6 +488,7 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             )
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
+        self._track_group(process.pid)
         try:
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=effective_timeout

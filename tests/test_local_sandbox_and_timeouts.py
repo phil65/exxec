@@ -133,3 +133,52 @@ async def test_concurrent_execution_timeout_kills_its_own_process():
 
 def test_os_environ_untouched():
     assert "SANDBOXED" not in os.environ
+
+
+@posix_only
+async def test_aexit_ends_background_children_of_finished_commands():
+    marker = f"44.{uuid.uuid4().int % 10**6}"
+    async with LocalExecutionEnvironment() as env:
+        result = await env.execute_command(f"sleep {marker} >/dev/null 2>&1 & echo started")
+        assert result.success, result.error
+        await asyncio.sleep(0.2)
+        assert _alive(f"sleep {marker}")  # the command's leader is gone, its child not
+    await asyncio.sleep(0.2)
+    assert not _alive(f"sleep {marker}")
+
+
+@posix_only
+async def test_aexit_ends_background_children_of_finished_spawned_processes():
+    marker = f"45.{uuid.uuid4().int % 10**6}"
+    async with LocalExecutionEnvironment() as env:
+        handle = await env.spawn(f"sleep {marker} >/dev/null 2>&1 &")
+        assert await handle.wait() == 0
+        await asyncio.sleep(0.2)
+        assert _alive(f"sleep {marker}")
+    await asyncio.sleep(0.2)
+    assert not _alive(f"sleep {marker}")
+
+
+@posix_only
+async def test_aexit_ends_background_children_of_isolated_code():
+    marker = f"46.{uuid.uuid4().int % 10**6}"
+    code = (
+        "import subprocess\n"
+        f"subprocess.Popen(['sleep', '{marker}'], stdout=subprocess.DEVNULL,"
+        " stderr=subprocess.DEVNULL)\n_result = 1"
+    )
+    async with LocalExecutionEnvironment(isolated=True) as env:
+        result = await env.execute(code)
+        assert result.success, result.error
+        await asyncio.sleep(0.2)
+        assert _alive(f"sleep {marker}")
+    await asyncio.sleep(0.2)
+    assert not _alive(f"sleep {marker}")
+
+
+@posix_only
+async def test_finished_groups_are_forgotten():
+    async with LocalExecutionEnvironment() as env:
+        for _ in range(3):
+            assert (await env.execute_command("true")).success
+        assert len(env._process_groups) <= 1

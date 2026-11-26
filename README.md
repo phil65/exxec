@@ -144,6 +144,12 @@ async with (
 
 `env.process_manager` manages background processes and `env.get_pty_manager()` manages PTY sessions.
 
+Nothing a local environment starts outlives it: on POSIX every command, spawned process and
+isolated interpreter runs in its own session, and leaving the environment (`async with`)
+ends each of those process groups (TERM, then KILL after 5 s), including background
+children of commands that already finished. A process that must keep running has to
+leave the group itself (`setsid <cmd>`; `nohup` is not enough).
+
 ### Filesystem
 
 `env.get_fs()` returns an async fsspec filesystem for the environment (local, Docker, SSH,
