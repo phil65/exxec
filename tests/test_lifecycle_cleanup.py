@@ -1,7 +1,5 @@
 """Setup/teardown failures still release what was acquired."""
 
-from __future__ import annotations
-
 import contextlib
 from pathlib import Path
 import sys

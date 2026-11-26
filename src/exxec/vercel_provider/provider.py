@@ -1,7 +1,5 @@
 """Vercel sandbox execution environment that runs code in cloud sandboxes."""
 
-from __future__ import annotations
-
 import contextlib
 import subprocess
 import time

@@ -4,8 +4,6 @@ This module provides PTY support for Hopx cloud VM sandbox environments
 using the Hopx SDK's WebSocket terminal API.
 """
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any

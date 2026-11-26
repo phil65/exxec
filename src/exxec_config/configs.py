@@ -1,7 +1,5 @@
 """Execution environment configuration."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field, SecretStr

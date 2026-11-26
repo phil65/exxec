@@ -1,7 +1,5 @@
 """SSH command/code paths against the in-process asyncssh test server."""
 
-from __future__ import annotations
-
 import shutil
 import sys
 from typing import TYPE_CHECKING

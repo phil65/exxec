@@ -3,8 +3,6 @@
 Run with `pytest -m integration`; requires DAYTONA_API_KEY.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import re

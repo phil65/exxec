@@ -5,8 +5,6 @@ that an interactive session must be exited in the task that entered it). The
 integration test runs against a real sandbox when credentials work.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import os

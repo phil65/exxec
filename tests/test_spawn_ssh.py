@@ -5,8 +5,6 @@ The test server executes each session's command locally via
 signal requests, so the full SSH wire protocol path of the client is exercised.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import shutil

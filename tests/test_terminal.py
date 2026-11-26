@@ -1,7 +1,5 @@
 """Tests for key encoding, the Ghostty screen emulator and `TerminalSession`."""
 
-from __future__ import annotations
-
 import re
 import sys
 

@@ -9,8 +9,6 @@ Signal deaths are reported with exit code -1 and no signal number, so the handle
 remembers the last signal it sent to report `128 + signal` like other providers.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 from typing import TYPE_CHECKING

@@ -5,8 +5,6 @@ Works for every environment with `supports_pty`. Each session owns one
 consumers concurrently and `read()` does not steal bytes from streams.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 from dataclasses import dataclass, field

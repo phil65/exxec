@@ -10,9 +10,6 @@ Key names are case-insensitive:
 - Any other single character is sent as-is (UTF-8)
 """
 
-from __future__ import annotations
-
-
 ESC = "\x1b"
 
 _SIMPLE_KEYS: dict[str, str] = {

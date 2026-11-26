@@ -10,8 +10,6 @@ Two implementations are provided:
   the fallback for environments without `spawn()`.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 import asyncio
 import codecs

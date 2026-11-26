@@ -15,8 +15,6 @@ Note: on Windows, importing `modal` switches the global asyncio event loop polic
 the selector loop (an upstream workaround), which cannot run local subprocesses.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import shlex

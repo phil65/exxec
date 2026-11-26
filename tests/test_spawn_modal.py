@@ -6,8 +6,6 @@ the handle's shell wrappers (PID file, `stty` sizing, TTY recording, `stty -F`
 resize, `kill`) are exercised for real. The integration test uses Modal itself.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 from pathlib import Path

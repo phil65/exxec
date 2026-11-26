@@ -3,8 +3,6 @@
 Run with `pytest -m integration`; requires E2B_API_KEY.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import re

@@ -7,8 +7,6 @@ Signals other than SIGKILL are delivered with `kill` via a second exec (Beam PID
 are in-sandbox PIDs).
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 from typing import TYPE_CHECKING

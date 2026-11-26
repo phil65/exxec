@@ -10,8 +10,6 @@
   session (closing the terminal ends the process).
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import subprocess

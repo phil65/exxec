@@ -1,7 +1,5 @@
 """Command lines built by remote providers, run by a local shell instead of the sandbox."""
 
-from __future__ import annotations
-
 import shutil
 import subprocess
 import sys

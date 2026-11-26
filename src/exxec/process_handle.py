@@ -16,8 +16,6 @@ Semantics shared by all implementations:
   Leaving the context kills a still-running process.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 import asyncio
 import signal

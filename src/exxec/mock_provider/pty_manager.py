@@ -1,7 +1,5 @@
 """Mock PTY manager for testing."""
 
-from __future__ import annotations
-
 import asyncio
 from typing import TYPE_CHECKING
 

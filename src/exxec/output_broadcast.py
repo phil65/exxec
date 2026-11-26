@@ -5,8 +5,6 @@ consumer: it reads continuously and delivers every chunk to any number of
 subscribers, keeping a bounded backlog so late subscribers can replay recent output.
 """
 
-from __future__ import annotations
-
 import asyncio
 import collections
 import contextlib

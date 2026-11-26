@@ -11,8 +11,6 @@
   asyncio's child watcher, so no threads are involved at all.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import errno

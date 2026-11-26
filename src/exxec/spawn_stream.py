@@ -5,8 +5,6 @@ streaming with uniform semantics: one output event per line, a total time limit
 that kills the process (group), and termination when the stream is closed.
 """
 
-from __future__ import annotations
-
 import asyncio
 import codecs
 from typing import TYPE_CHECKING

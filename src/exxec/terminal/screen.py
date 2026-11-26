@@ -4,8 +4,6 @@
 implements it with libghostty-vt via pyghostty (install `exxec[vt]`).
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 

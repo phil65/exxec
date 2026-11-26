@@ -1,7 +1,5 @@
 """SSH execution environment that runs code on remote machines."""
 
-from __future__ import annotations
-
 import contextlib
 from contextlib import AsyncExitStack
 import shlex

@@ -4,8 +4,6 @@ This module provides PTY support for Sprites cloud VM environments
 using the Sprites SDK's WebSocket command execution with TTY mode.
 """
 
-from __future__ import annotations
-
 import asyncio
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any

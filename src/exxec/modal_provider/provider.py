@@ -1,7 +1,5 @@
 """Modal execution environment that runs code in serverless sandboxes."""
 
-from __future__ import annotations
-
 import contextlib
 import time
 from typing import TYPE_CHECKING, Any, Self

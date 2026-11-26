@@ -1,7 +1,5 @@
 """Daytona execution environment that runs code in remote sandboxes."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import os

@@ -1,7 +1,5 @@
 """Helpers for building POSIX shell command lines for remote environments."""
 
-from __future__ import annotations
-
 import re
 import shlex
 

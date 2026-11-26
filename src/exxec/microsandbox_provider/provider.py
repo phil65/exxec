@@ -1,7 +1,5 @@
 """Microsandbox execution environment that runs code in lightweight sandboxes."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import time

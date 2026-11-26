@@ -1,7 +1,5 @@
 """Microsandbox execution environment that runs code in microVMs."""
 
-from __future__ import annotations
-
 from exxec.microsandbox_provider.provider import (
     MicrosandboxExecutionEnvironment,
 )

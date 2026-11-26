@@ -1,7 +1,5 @@
 """Beam execution environment that runs code in cloud sandboxes."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import time

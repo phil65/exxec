@@ -4,8 +4,6 @@ Covers `SpawnProcessManager` (command wrapping, cwd, env vars, cleanup) and
 `StreamingProcessManager` (routing through the environment's `stream_command`).
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 import sys

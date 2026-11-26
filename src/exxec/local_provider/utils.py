@@ -1,7 +1,5 @@
 """Local execution environment that runs code locally."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import inspect

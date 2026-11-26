@@ -4,8 +4,6 @@ This is a lightweight config-only package for fast imports.
 For the actual execution environments, use `from exxec import ...`.
 """
 
-from __future__ import annotations
-
 from exxec_config.configs import (
     BaseExecutionEnvironmentConfig,
     BeamExecutionEnvironmentConfig,

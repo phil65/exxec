@@ -13,8 +13,6 @@
 - Exit codes come from `exec_inspect` once the process stopped running.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import socket

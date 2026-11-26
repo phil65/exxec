@@ -3,8 +3,6 @@
 Run with `pytest -m integration`; requires BEAM_TOKEN.
 """
 
-from __future__ import annotations
-
 import asyncio
 import os
 from typing import TYPE_CHECKING

@@ -1,7 +1,5 @@
 """Docker execution environment that runs code in isolated containers."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 from pathlib import Path

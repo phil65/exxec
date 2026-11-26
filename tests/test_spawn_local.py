@@ -1,7 +1,5 @@
 """Tests for `LocalExecutionEnvironment.spawn()` and the local process handles."""
 
-from __future__ import annotations
-
 import asyncio
 import os
 import sys

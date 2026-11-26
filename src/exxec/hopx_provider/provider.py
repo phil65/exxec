@@ -1,7 +1,5 @@
 """Hopx execution environment that runs code in cloud VM sandboxes."""
 
-from __future__ import annotations
-
 import contextlib
 import time
 from typing import TYPE_CHECKING, Any, Self

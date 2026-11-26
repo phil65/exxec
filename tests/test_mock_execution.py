@@ -1,7 +1,5 @@
 """Tests for MockExecutionEnvironment."""
 
-from __future__ import annotations
-
 from anyenv.process_manager.models import ProcessOutput
 import pytest
 

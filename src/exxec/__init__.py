@@ -1,7 +1,5 @@
 """Exxec: Sandboxes & Code execution environments for remote code execution."""
 
-from __future__ import annotations
-
 from importlib.metadata import version
 
 

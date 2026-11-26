@@ -14,8 +14,6 @@ Raw output stays available to other consumers (e.g. a websocket to a GUI termina
 via `subscribe()`; all consumers see identical output.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import re

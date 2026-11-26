@@ -1,7 +1,5 @@
 """Sprites execution environment that runs code in Fly.io cloud VMs."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import time

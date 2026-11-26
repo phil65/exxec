@@ -1,7 +1,5 @@
 """Cloudflare sandbox execution environment using Cloudflare Workers HTTP API."""
 
-from __future__ import annotations
-
 import contextlib
 import re
 import shlex

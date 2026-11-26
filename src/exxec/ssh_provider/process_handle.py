@@ -10,8 +10,6 @@ Each spawned process is its own SSH session channel:
   sshd hang up the session.
 """
 
-from __future__ import annotations
-
 import contextlib
 from typing import TYPE_CHECKING, Any
 

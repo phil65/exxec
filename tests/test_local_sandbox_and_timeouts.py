@@ -1,7 +1,5 @@
 """Local / SRT environments: sandbox wrapping of code, timeouts that kill, decoding."""
 
-from __future__ import annotations
-
 import asyncio
 import os
 import shutil

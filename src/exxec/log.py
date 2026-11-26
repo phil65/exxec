@@ -1,7 +1,5 @@
 """Logging configuration for exxec."""
 
-from __future__ import annotations
-
 import logging
 
 

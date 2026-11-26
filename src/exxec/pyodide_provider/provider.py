@@ -1,7 +1,5 @@
 """Pyodide execution environment using Deno subprocess with JSON-RPC protocol."""
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import json

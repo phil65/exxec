@@ -1,7 +1,5 @@
 """Tests for StreamCapture (local provider output forwarding)."""
 
-from __future__ import annotations
-
 import asyncio
 import io
 

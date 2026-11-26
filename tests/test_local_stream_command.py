@@ -1,7 +1,5 @@
 """Tests for `LocalExecutionEnvironment.stream_command()` built on `spawn()`."""
 
-from __future__ import annotations
-
 import asyncio
 import os
 import sys
