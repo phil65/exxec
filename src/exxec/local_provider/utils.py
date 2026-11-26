@@ -8,6 +8,7 @@ import inspect
 import io
 import shutil
 import sys
+import threading
 from typing import TYPE_CHECKING, TextIO
 
 
@@ -28,12 +29,27 @@ PYTHON_EXECUTABLES = [
 
 
 class StreamCapture(io.StringIO):
-    """Capture and forward output to a queue."""
+    """Capture and forward output to a queue.
+
+    Writes from other threads (sync code run via `asyncio.to_thread`) are handed to
+    the event loop the capture was created on: asyncio queues are not thread-safe.
+    The redirect this is used with (`contextlib.redirect_stdout`) is process-global,
+    so output of other tasks and threads during a run is captured too.
+    """
 
     def __init__(self, original_stream: TextIO, queue: asyncio.Queue[str]) -> None:
         super().__init__()
         self.original_stream = original_stream
         self.queue = queue
+        try:
+            self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+        self._loop_thread = threading.get_ident()
+
+    def _put(self, line: str) -> None:
+        with contextlib.suppress(asyncio.QueueFull):
+            self.queue.put_nowait(line)
 
     def write[S: (str, bytes)](self, s: S) -> int:
         """Capture and forward output to a queue."""
@@ -42,9 +58,13 @@ class StreamCapture(io.StringIO):
         if text:
             lines = text.splitlines(keepends=True)
             for line in lines:
-                if line.strip():
-                    with contextlib.suppress(asyncio.QueueFull):
-                        self.queue.put_nowait(line.rstrip("\n\r"))
+                if not line.strip():
+                    continue
+                if self._loop is None or threading.get_ident() == self._loop_thread:
+                    self._put(line.rstrip("\n\r"))
+                else:
+                    with contextlib.suppress(RuntimeError):  # loop already closed
+                        self._loop.call_soon_threadsafe(self._put, line.rstrip("\n\r"))
         return result
 
     def flush(self) -> None:
