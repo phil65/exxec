@@ -31,6 +31,12 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
     - Filesystem write restrictions (allow specific paths only)
 
     Requires `srt` CLI to be installed: `npm install -g @anthropic-ai/sandbox-runtime`
+
+    `dependencies` are installed with `pip install` when the environment is entered,
+    outside the sandbox (with the host's network and file access): the list comes from
+    the environment's own configuration, not from the sandboxed code. Code run in the
+    sandbox can't install packages itself unless the sandbox config allows the index's
+    domains and the target directory.
     """
 
     def __init__(
@@ -51,7 +57,7 @@ class SRTExecutionEnvironment(LocalExecutionEnvironment):
         Args:
             sandbox_config: Sandbox restrictions configuration
             lifespan_handler: Async context manager for tool server
-            dependencies: List of packages to install
+            dependencies: Packages to `pip install` on entering (runs outside the sandbox)
             default_command_timeout: Execution timeout in seconds
             executable: Executable to use (auto-detect if None)
             language: Programming language

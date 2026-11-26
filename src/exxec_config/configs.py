@@ -533,6 +533,9 @@ class SRTExecutionEnvironmentConfig(BaseExecutionEnvironmentConfig):
 
     Executes code locally with OS-level sandboxing for network and filesystem restrictions.
     Requires `srt` CLI: `npm install -g @anthropic-ai/sandbox-runtime`
+
+    `dependencies` are installed with `pip install` outside the sandbox (they come from
+    this configuration, not from the sandboxed code).
     """
 
     model_config = ConfigDict(json_schema_extra={"x-doc-title": "SRT Execution Environment"})

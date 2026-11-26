@@ -99,6 +99,10 @@ The classes are importable directly as well (`LocalExecutionEnvironment`,
 overloads, so your editor shows each provider's options. `MockExecutionEnvironment` is
 available for tests.
 
+`srt` runs each command inside the sandbox; its `dependencies` are installed with `pip install`
+when the environment is entered, outside the sandbox, since the list is the environment's own
+configuration.
+
 ## Features
 
 ### Code execution
