@@ -93,12 +93,21 @@ async def stream_command_via_spawn(
 async def _iter_lines(chunks: AsyncIterator[bytes]) -> AsyncGenerator[str]:
     """Split a byte stream into decoded lines (without line terminators)."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    pending = ""
+    # Parts of the current line; only new text is searched, so a long line is linear.
+    pending: list[str] = []
     async for chunk in chunks:
-        pending += decoder.decode(chunk)
-        *complete, pending = pending.split("\n")
+        text = decoder.decode(chunk)
+        if "\n" not in text:
+            if text:
+                pending.append(text)
+            continue
+        first, *rest = text.split("\n")
+        pending.append(first)
+        yield "".join(pending).rstrip("\r")
+        *complete, last = rest
         for line in complete:
             yield line.rstrip("\r")
-    pending += decoder.decode(b"", final=True)
-    if pending:
-        yield pending.rstrip("\r")
+        pending = [last] if last else []
+    tail = "".join(pending) + decoder.decode(b"", final=True)
+    if tail:
+        yield tail.rstrip("\r")
