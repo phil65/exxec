@@ -17,6 +17,7 @@ from anyenv.processes import create_process, create_shell_process
 from exxec.base import ExecutionEnvironment, OSType
 from exxec.events import OutputEvent, ProcessCompletedEvent, ProcessErrorEvent, ProcessStartedEvent
 from exxec.local_provider.utils import StreamCapture, find_executable
+from exxec.log import get_logger
 from exxec.models import ExecutionResult
 from exxec.parse_output import parse_output, wrap_code
 
@@ -34,6 +35,10 @@ if TYPE_CHECKING:
     from exxec.pty_manager import PtySize
 
 
+logger = get_logger(__name__)
+NEW_SESSION = sys.platform != "win32"
+"""Start subprocesses in their own session, so a timeout can kill the whole group."""
+
 PYTHON_EXECUTABLES = [
     "python3",
     "python",
@@ -42,6 +47,35 @@ PYTHON_EXECUTABLES = [
     "python3.11",
     "python3.14",
 ]
+
+
+def _decode(data: bytes | None) -> str:
+    return data.decode(errors="replace") if data else ""
+
+
+async def _kill_process_group(process: asyncio.subprocess.Process, grace: float = 1.0) -> None:
+    """Terminate a process started with `NEW_SESSION` and everything in its group.
+
+    Sends TERM to the group, then KILL after `grace` seconds, and reaps the process.
+    """
+    from exxec.local_provider.process_handle import _kill_tree_windows
+
+    if process.returncode is not None:
+        return
+    if sys.platform == "win32":
+        await _kill_tree_windows(process)
+    else:
+        import signal
+
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGTERM)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(process.wait()), timeout=grace)
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGKILL)
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    await process.wait()
 
 
 def _platform_os_type() -> OSType:
@@ -101,6 +135,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         self.language: Language = language
         self.executable = executable or (find_executable(language) if isolated else None)
         self.process: asyncio.subprocess.Process | None = None
+        """The last started isolated process (kept for compatibility)."""
+        self._processes: set[asyncio.subprocess.Process] = set()
         self.root_path = root_path
         # Local provider knows OS statically
         self._os_type = _platform_os_type()
@@ -110,15 +146,25 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         await super().__aenter__()
 
         # Install dependencies if specified and in isolated mode
-        if self.isolated and self.dependencies and self.language == "python":
-            deps_str = " ".join(self.dependencies)
-            cmd = f"pip install {deps_str}"
+        if self.isolated and self.dependencies and self.language == "python" and self.executable:
+            # Into the interpreter that runs the code. The dependency list is the
+            # environment's own configuration, so this runs outside a sandbox.
+            argv = [self.executable, "-m", "pip", "install", *self.dependencies]
             try:
-                process = await create_shell_process(cmd, stdout="pipe", stderr="pipe")
-                await asyncio.wait_for(process.communicate(), timeout=self.default_command_timeout)
-            except Exception:  # noqa: BLE001
-                # Log warning but don't fail - code might still work
-                pass
+                process = await create_process(
+                    *argv, stdout="pipe", stderr="pipe", start_new_session=NEW_SESSION
+                )
+                try:
+                    _, stderr = await asyncio.wait_for(
+                        process.communicate(), timeout=self.default_command_timeout
+                    )
+                finally:
+                    await _kill_process_group(process)
+                if process.returncode:
+                    logger.warning("Installing %s failed: %s", self.dependencies, _decode(stderr))
+            except Exception as e:  # noqa: BLE001
+                # Don't fail: the code might still work
+                logger.warning("Installing %s failed: %s", self.dependencies, e)
         return self
 
     async def __aexit__(
@@ -127,13 +173,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
     ) -> None:
-        if self.process and self.process.returncode is None:
-            self.process.terminate()
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=5.0)
-            except TimeoutError:
-                self.process.kill()
-                await self.process.wait()
+        for process in list(self._processes):
+            await _kill_process_group(process, grace=5.0)
 
         # Cleanup server via base class
         await super().__aexit__(exc_type, exc_val, exc_tb)
@@ -189,23 +230,46 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
 
+    async def _start_code_process(
+        self, *, stderr: Literal["pipe", "stdout"]
+    ) -> asyncio.subprocess.Process:
+        """Start the interpreter for isolated code, through `wrap_argv()` (sandboxes)."""
+        process = await create_process(
+            *self.wrap_argv(self._get_subprocess_args()),
+            stdin="pipe",
+            stdout="pipe",
+            stderr=stderr,
+            env=self.get_env(),
+            start_new_session=NEW_SESSION,
+        )
+        self.process = process
+        self._processes.add(process)
+        return process
+
+    async def _finish_process(self, process: asyncio.subprocess.Process) -> None:
+        """Kill what's left of a process (timeout, cancellation) and forget it."""
+        try:
+            await _kill_process_group(process)
+        finally:
+            self._processes.discard(process)
+
     async def _execute_subprocess(self, code: str) -> ExecutionResult:
         """Execute code in subprocess with communication via stdin/stdout."""
         start_time = time.time()
-
+        process: asyncio.subprocess.Process | None = None
         try:
             wrapped_code = wrap_code(code, self.language)
-            args = self._get_subprocess_args()
-            process = await create_process(
-                *args, stdin="pipe", stdout="pipe", stderr="pipe", env=self.get_env()
-            )
-            self.process = process
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(wrapped_code.encode()),
-                timeout=self.default_command_timeout,
-            )
-            stdout = stdout_data.decode() if stdout_data else ""
-            stderr = stderr_data.decode() if stderr_data else ""
+            process = await self._start_code_process(stderr="pipe")
+            try:
+                stdout_data, stderr_data = await asyncio.wait_for(
+                    process.communicate(wrapped_code.encode()),
+                    timeout=self.default_command_timeout,
+                )
+            except TimeoutError:
+                msg = f"Execution timed out after {self.default_command_timeout} seconds"
+                return ExecutionResult.failed(TimeoutError(msg), start_time)
+            stdout = _decode(stdout_data)
+            stderr = _decode(stderr_data)
             if process.returncode == 0:
                 execution_result, error_info = parse_output(stdout)
                 if error_info is None:
@@ -239,10 +303,10 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
             )
 
         except Exception as e:  # noqa: BLE001
-            if self.process:  # Cleanup process if it exists
-                self.process.kill()
-                await self.process.wait()
             return ExecutionResult.failed(e, start_time)
+        finally:
+            if process is not None:
+                await self._finish_process(process)
 
     def _get_subprocess_args(self) -> list[str]:
         """Get subprocess arguments based on language."""
@@ -358,30 +422,41 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
         try:
             process = await create_shell_process(
-                command, stdout="pipe", stderr="pipe", cwd=self.cwd, env=self.get_env()
+                command,
+                stdout="pipe",
+                stderr="pipe",
+                cwd=self.cwd,
+                env=self.get_env(),
+                start_new_session=NEW_SESSION,
             )
+        except Exception as e:  # noqa: BLE001
+            return ExecutionResult.failed(e, start_time)
+        try:
             stdout_data, stderr_data = await asyncio.wait_for(
                 process.communicate(), timeout=effective_timeout
             )
-
-            duration = time.time() - start_time
-            stdout = stdout_data.decode() if stdout_data else ""
-            stderr = stderr_data.decode() if stderr_data else ""
-            success = process.returncode == 0
-
-            return ExecutionResult(
-                result=stdout if success else None,
-                duration=duration,
-                success=success,
-                error=stderr if not success else None,
-                error_type="CommandError" if not success else None,
-                stdout=stdout,
-                stderr=stderr,
-                exit_code=process.returncode,
-            )
-
+        except TimeoutError:
+            msg = f"Command timed out after {effective_timeout} seconds"
+            return ExecutionResult.failed(TimeoutError(msg), start_time)
         except Exception as e:  # noqa: BLE001
             return ExecutionResult.failed(e, start_time)
+        finally:
+            # On timeout or cancellation: the shell and everything it started.
+            await _kill_process_group(process)
+
+        stdout = _decode(stdout_data)
+        stderr = _decode(stderr_data)
+        success = process.returncode == 0
+        return ExecutionResult(
+            result=stdout if success else None,
+            duration=time.time() - start_time,
+            success=success,
+            error=stderr if not success else None,
+            error_type="CommandError" if not success else None,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=process.returncode,
+        )
 
     async def stream_code(self, code: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code and stream events."""
@@ -405,12 +480,11 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
     ) -> AsyncIterator[ExecutionEvent]:
         """Execute code in subprocess and stream events."""
         try:
-            args = self._get_subprocess_args()
-            process = await create_process(
-                *args, stdin="pipe", stdout="pipe", stderr="stdout", env=self.get_env()
-            )
-            self.process = process
-
+            process = await self._start_code_process(stderr="stdout")
+        except Exception as e:  # noqa: BLE001
+            yield ProcessErrorEvent.failed(e, process_id=process_id)
+            return
+        try:
             if process.stdin:
                 wrapped_code = wrap_code(code, self.language)
                 process.stdin.write(wrapped_code.encode())
@@ -422,13 +496,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                         line = await asyncio.wait_for(
                             process.stdout.readline(), timeout=self.default_command_timeout
                         )
-                        if not line:
-                            break
-                        data = line.decode().rstrip("\n\r")
-                        yield OutputEvent(process_id=process_id, data=data, stream="combined")
                     except TimeoutError:
-                        process.kill()
-                        await process.wait()
+                        await _kill_process_group(process)
                         yield ProcessErrorEvent(
                             process_id=process_id,
                             error=f"Process timed out after {self.default_command_timeout} seconds",
@@ -436,6 +505,10 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
                             exit_code=1,
                         )
                         return
+                    if not line:
+                        break
+                    data = _decode(line).rstrip("\n\r")
+                    yield OutputEvent(process_id=process_id, data=data, stream="combined")
 
             exit_code = await process.wait()
             if exit_code == 0:
@@ -450,6 +523,8 @@ class LocalExecutionEnvironment(ExecutionEnvironment):
 
         except Exception as e:  # noqa: BLE001
             yield ProcessErrorEvent.failed(e, process_id=process_id)
+        finally:
+            await self._finish_process(process)
 
     async def _stream_code_local(self, code: str, process_id: str) -> AsyncIterator[ExecutionEvent]:
         """Execute code locally and stream events."""
